@@ -17,6 +17,7 @@ export default {
   ],
   output: {
     ...obsidianPluginConfig.output,
-    file: 'main.js'
+    file: 'main.js',
+    dir: undefined // Override the dir setting from shared config
   }
 };
