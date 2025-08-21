@@ -42,6 +42,13 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({
 
   return (
     <div className={cn('writerr-mode-selector', className)}>
+      <div 
+        id="mode-selector-description" 
+        className="sr-only"
+        aria-hidden="true"
+      >
+        Choose how you want to interact with the AI: Chat for conversation, Copy Edit for structure improvements, Proofread for grammar fixes, or Writing Assistant for collaborative writing.
+      </div>
       <Select.Root
         value={currentMode?.id || ''}
         onValueChange={handleValueChange}
@@ -49,7 +56,8 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({
       >
         <Select.Trigger
           className="writerr-mode-trigger"
-          aria-label="Select chat mode"
+          aria-label={`Current mode: ${currentMode?.name || 'None selected'}. Click to change mode.`}
+          aria-describedby="mode-selector-description"
         >
           <div className="flex items-center gap-2">
             {currentMode?.icon && (
@@ -77,6 +85,8 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({
             side="bottom"
             align="end"
             sideOffset={4}
+            role="listbox"
+            aria-label="Available chat modes"
           >
             <Select.Viewport>
               {modes.map((mode) => (
@@ -84,6 +94,7 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({
                   key={mode.id}
                   value={mode.id}
                   className="writerr-mode-item"
+                  aria-describedby={`mode-${mode.id}-description`}
                 >
                   <div className="writerr-mode-item-icon">
                     {mode.icon && (
@@ -97,7 +108,10 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({
                       <div className="writerr-mode-item-name">
                         {mode.name}
                       </div>
-                      <div className="writerr-mode-item-description">
+                      <div 
+                        className="writerr-mode-item-description"
+                        id={`mode-${mode.id}-description`}
+                      >
                         {mode.description}
                       </div>
                     </Select.ItemText>

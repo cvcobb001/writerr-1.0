@@ -33,8 +33,13 @@ const Message: React.FC<MessageProps> = ({ message, showTimestamp = true }) => {
         'writerr-message',
         isUser ? 'writerr-message-user' : 'writerr-message-assistant'
       )}
+      role="article"
+      aria-label={`${isUser ? 'Your' : 'AI assistant'} message sent ${formatTimestamp(message.timestamp)}`}
     >
-      <div className="writerr-message-content">
+      <div 
+        className="writerr-message-content"
+        aria-label={`${isUser ? 'You' : 'AI assistant'} said`}
+      >
         {message.content.split('\n').map((line, index, array) => (
           <React.Fragment key={index}>
             {line}
@@ -56,8 +61,13 @@ interface LoadingIndicatorProps {
 }
 
 const LoadingIndicator: React.FC<LoadingIndicatorProps> = ({ className }) => (
-  <div className={cn('writerr-loading', className)}>
-    <div className="writerr-loading-spinner" />
+  <div 
+    className={cn('writerr-loading', className)} 
+    role="status" 
+    aria-live="polite"
+    aria-label="AI assistant is processing your message"
+  >
+    <div className="writerr-loading-spinner" aria-hidden="true" />
     AI is thinking...
   </div>
 );
@@ -90,11 +100,18 @@ export const MessageArea: React.FC<MessageAreaProps> = ({
         <ScrollArea.Viewport
           ref={scrollViewportRef}
           className="writerr-messages-container"
+          role="log"
+          aria-live="polite"
+          aria-label="Chat conversation"
         >
           {messages.length === 0 ? (
-            <div className="writerr-empty-state">
+            <div 
+              className="writerr-empty-state" 
+              role="status"
+              aria-label="No messages yet"
+            >
               <div className="text-center py-12">
-                <div className="text-lg mb-2">🚀</div>
+                <div className="text-lg mb-2" role="img" aria-label="rocket emoji">🚀</div>
                 <div className="text-sm text-muted-foreground mb-1">
                   Welcome to Writerr Chat
                 </div>

@@ -49,7 +49,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
     setMessage(event.target.value);
   }, []);
 
-  // Auto-resize textarea based on content
+  // Auto-resize textarea based on content with max height for large texts
   useEffect(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
@@ -57,8 +57,12 @@ export const MessageInput: React.FC<MessageInputProps> = ({
     const adjustHeight = () => {
       textarea.style.height = 'auto';
       const scrollHeight = textarea.scrollHeight;
-      const newHeight = Math.max(minHeight, scrollHeight);
+      const maxHeight = Math.min(window.innerHeight * 0.4, 400); // Max 40% of viewport or 400px
+      const newHeight = Math.max(minHeight, Math.min(scrollHeight, maxHeight));
       textarea.style.height = `${newHeight}px`;
+      
+      // Show scrollbar if content exceeds max height
+      textarea.style.overflowY = scrollHeight > maxHeight ? 'auto' : 'hidden';
     };
 
     adjustHeight();
@@ -107,8 +111,11 @@ export const MessageInput: React.FC<MessageInputProps> = ({
           placeholder={placeholder}
           disabled={disabled || isSending}
           style={{ minHeight: `${minHeight}px` }}
-          aria-label="Message input"
+          aria-label="Write your message to the AI assistant"
           aria-describedby="writerr-input-help"
+          spellCheck="true"
+          autoCorrect="on"
+          autoCapitalize="sentences"
         />
         
         <div className="writerr-input-controls">
@@ -131,7 +138,8 @@ export const MessageInput: React.FC<MessageInputProps> = ({
             className="writerr-send-button"
             onClick={handleSend}
             disabled={!canSend}
-            aria-label={isSending ? 'Sending message...' : 'Send message'}
+            aria-label={isSending ? 'Sending message...' : canSend ? 'Send message' : 'Enter a message to send'}
+            type="submit"
           >
             {isSending ? (
               <>

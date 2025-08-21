@@ -211,7 +211,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         {/* Session continuity indicator */}
         <div 
           className="writerr-session-indicator" 
-          title="Session active"
+          title="Session active - your conversation will continue when switching modes"
+          role="status"
+          aria-label="Session status indicator"
         />
       </div>
 
@@ -224,18 +226,19 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
       {/* Input area */}
       <MessageInput
         onSend={handleMessageSend}
-        placeholder={`Ask your ${currentMode.name.toLowerCase()} anything... Press Enter for new lines, ${process.platform === 'darwin' ? 'Cmd' : 'Ctrl'}+Enter to send`}
+        placeholder={`Write your message to the ${currentMode.name.toLowerCase()}... Press Enter for new lines, ${process.platform === 'darwin' ? '⌘' : 'Ctrl'}+Enter to send`}
         disabled={chatState.isLoading}
         minHeight={120}
       />
 
       {/* Error display */}
       {chatState.error && (
-        <div className="writerr-error-banner">
+        <div className="writerr-error-banner" role="alert" aria-live="polite">
           <span>⚠️ {chatState.error}</span>
           <button 
             onClick={() => setChatState(prev => ({ ...prev, error: null }))}
-            aria-label="Dismiss error"
+            aria-label="Dismiss error message"
+            className="writerr-error-dismiss"
           >
             ×
           </button>

@@ -4,7 +4,6 @@ import React from 'react';
 import { globalRegistry, globalEventBus } from '@writerr/shared';
 import { ChatInterface, ChatProvider } from './components';
 import { ChatMode } from './interface/types';
-import './ui/styles.css';
 
 const CHAT_VIEW_TYPE = 'writerr-chat-view';
 const CHAT_ICON = 'message-circle';
