@@ -3,13 +3,15 @@ import { createRoot, Root } from 'react-dom/client';
 import React from 'react';
 import { globalRegistry, globalEventBus } from '@writerr/shared';
 import { ChatInterface, ChatProvider } from './components';
-import { ChatMode } from './interface/types';
+import { ChatMode, ChatMessage, DocumentContext } from './interface/types';
+import { integrationManager } from './integration';
 
 const CHAT_VIEW_TYPE = 'writerr-chat-view';
 const CHAT_ICON = 'message-circle';
 
 interface ChatViewState {
   currentMode?: string;
+  currentSession?: string;
 }
 
 class ChatView extends ItemView {
@@ -76,20 +78,94 @@ class ChatView extends ItemView {
     console.log('Sending message in mode:', mode.id, 'Message:', message);
     
     try {
+      // Get current document context
+      const documentContext = this.getCurrentDocumentContext();
+      
+      // Create message history for context
+      const messages: ChatMessage[] = [
+        {
+          id: `msg-${Date.now()}`,
+          content: message,
+          role: 'user',
+          timestamp: new Date()
+        }
+      ];
+
+      // Generate session ID if needed
+      const sessionId = this.getState()?.currentSession || `session-${Date.now()}`;
+      
       // Emit event for message sending
       globalEventBus.emit('chat-message-send', {
         message,
         mode: mode.id,
+        sessionId,
         timestamp: new Date().toISOString()
       });
 
-      // Here's where we would integrate with AI Providers plugin
-      // For now, we'll just log that the message was sent
-      console.log('Message sent successfully');
+      // Process message through integration manager
+      const processedResponse = await integrationManager.processMessage(
+        messages,
+        mode,
+        documentContext,
+        sessionId
+      );
+
+      // Emit the AI response
+      globalEventBus.emit('chat-message-received', {
+        message: processedResponse.message,
+        decision: processedResponse.decision,
+        performance: processedResponse.performance,
+        sessionId,
+        timestamp: new Date().toISOString()
+      });
+
+      console.log('Message processed successfully:', processedResponse);
       
     } catch (error) {
-      console.error('Error sending message:', error);
+      console.error('Error processing message:', error);
+      
+      // Emit error event
+      globalEventBus.emit('chat-message-error', {
+        message,
+        mode: mode.id,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString()
+      });
+      
       throw error;
+    }
+  }
+
+  private getCurrentDocumentContext(): DocumentContext | undefined {
+    try {
+      // Get the currently active file
+      const activeFile = this.app.workspace.getActiveFile();
+      if (!activeFile) return undefined;
+
+      // Get the active editor
+      const activeView = this.app.workspace.getActiveViewOfType(this.app.viewRegistry.getViewTypeByID('markdown'));
+      if (!activeView) return undefined;
+
+      // Get the current selection
+      const editor = (activeView as any).editor;
+      if (!editor) return undefined;
+
+      const selection = editor.getSelection();
+      const cursor = editor.getCursor();
+
+      return {
+        filePath: activeFile.path,
+        selection: selection ? {
+          start: editor.posToOffset(editor.getCursor('from')),
+          end: editor.posToOffset(editor.getCursor('to')),
+          text: selection
+        } : undefined,
+        documentType: activeFile.extension,
+        projectContext: [] // Could be enhanced to analyze related files
+      };
+    } catch (error) {
+      console.warn('Error getting document context:', error);
+      return undefined;
     }
   }
 
@@ -105,7 +181,8 @@ class ChatView extends ItemView {
   getState(): ChatViewState | null {
     // Return current state for persistence
     return {
-      currentMode: 'chat' // Default mode
+      currentMode: 'chat', // Default mode
+      currentSession: `session-${Date.now()}`
     };
   }
 }
@@ -114,12 +191,24 @@ export default class WriterChatPlugin extends Plugin {
   async onload() {
     console.log('Loading Writerr Chat plugin');
     
+    // Initialize integration manager
+    try {
+      const integrationInitialized = await integrationManager.initialize();
+      if (integrationInitialized) {
+        console.log('Integration manager initialized successfully');
+      } else {
+        console.warn('Integration manager initialization failed, some features may be limited');
+      }
+    } catch (error) {
+      console.error('Error initializing integration manager:', error);
+    }
+    
     // Register plugin capabilities
     globalRegistry.register({
       id: 'writerr-chat',
       name: 'Writerr Chat',
       version: '1.0.0',
-      capabilities: ['ai-chat', 'collaboration', 'real-time-messaging', 'mode-switching']
+      capabilities: ['ai-chat', 'collaboration', 'real-time-messaging', 'mode-switching', 'ai-integration', 'edit-routing']
     });
     
     // Register the chat view
@@ -174,11 +263,17 @@ export default class WriterChatPlugin extends Plugin {
 
   onunload() {
     console.log('Unloading Writerr Chat plugin');
+    
+    // Dispose of integration manager
+    integrationManager.dispose();
+    
     globalRegistry.unregister('writerr-chat');
     
     // Clean up event listeners
     globalEventBus.off('chat-message');
     globalEventBus.off('document-selection-changed');
+    globalEventBus.off('chat-message-received');
+    globalEventBus.off('chat-message-error');
   }
 
   private async activateChatView(): Promise<void> {
