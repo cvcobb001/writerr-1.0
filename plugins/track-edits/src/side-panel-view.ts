@@ -239,11 +239,14 @@ export class EditSidePanelView extends ItemView {
     const controlsDiv = container.createEl('div', { cls: 'track-edits-ai-simple' });
     const controlsLine = controlsDiv.createEl('div', { cls: 'ai-simple-line' });
     
-    // "AI" label
-    controlsLine.createEl('span', { text: 'AI', cls: 'ai-simple-label' });
+    // Left side: "AI" label with toggle right next to it
+    const labelToggleGroup = controlsLine.createEl('div', { cls: 'ai-label-toggle-group' });
     
-    // Toggle switch (minimal styling)
-    const toggleSwitch = controlsLine.createEl('div', { cls: 'ai-simple-toggle' });
+    // "AI" label - more prominent
+    labelToggleGroup.createEl('span', { text: 'AI', cls: 'ai-simple-label' });
+    
+    // Toggle switch right next to label
+    const toggleSwitch = labelToggleGroup.createEl('div', { cls: 'ai-simple-toggle' });
     toggleSwitch.addClass(this.plugin.settings.aiAlwaysEnabled ? 'on' : 'off');
     toggleSwitch.setAttribute('title', this.plugin.settings.aiAlwaysEnabled ? 'AI Always On' : 'AI Manual Only');
     
@@ -254,7 +257,7 @@ export class EditSidePanelView extends ItemView {
       this.renderView(); // Re-render to update toggle state
     };
     
-    // "Run Once" button
+    // Right side: "Run Once" button - more prominent
     this.runOnceBtn = controlsLine.createEl('button', {
       text: 'Run Once',
       cls: this.plugin.settings.aiAlwaysEnabled ? 'ai-simple-btn disabled' : 'ai-simple-btn enabled',

@@ -621,8 +621,9 @@ var EditSidePanelView = class extends import_obsidian3.ItemView {
   createAIControlsSection(container) {
     const controlsDiv = container.createEl("div", { cls: "track-edits-ai-simple" });
     const controlsLine = controlsDiv.createEl("div", { cls: "ai-simple-line" });
-    controlsLine.createEl("span", { text: "AI", cls: "ai-simple-label" });
-    const toggleSwitch = controlsLine.createEl("div", { cls: "ai-simple-toggle" });
+    const labelToggleGroup = controlsLine.createEl("div", { cls: "ai-label-toggle-group" });
+    labelToggleGroup.createEl("span", { text: "AI", cls: "ai-simple-label" });
+    const toggleSwitch = labelToggleGroup.createEl("div", { cls: "ai-simple-toggle" });
     toggleSwitch.addClass(this.plugin.settings.aiAlwaysEnabled ? "on" : "off");
     toggleSwitch.setAttribute("title", this.plugin.settings.aiAlwaysEnabled ? "AI Always On" : "AI Manual Only");
     toggleSwitch.onclick = () => {
