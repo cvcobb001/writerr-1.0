@@ -24,6 +24,8 @@ __export(main_exports, {
 });
 module.exports = __toCommonJS(main_exports);
 var import_obsidian4 = require("obsidian");
+var import_state = require("@codemirror/state");
+var import_view = require("@codemirror/view");
 
 // plugins/track-edits/src/settings.ts
 var import_obsidian = require("obsidian");
@@ -775,6 +777,283 @@ var DEFAULT_SETTINGS = {
   clusterTimeWindow: 2e3,
   showSidePanelOnStart: true
 };
+var DEBUG_MODE = true;
+var PERF_MONITOR = true;
+var DebugMonitor = class {
+  static log(type, data) {
+    if (!DEBUG_MODE)
+      return;
+    this.logs.push({ timestamp: Date.now(), type, data });
+    console.log(`[Track Edits ${type}]`, JSON.stringify(data, null, 2));
+    if (this.logs.length > 1e3) {
+      this.logs.splice(0, 500);
+    }
+  }
+  static startTimer(name) {
+    if (!PERF_MONITOR)
+      return null;
+    return { name, start: performance.now() };
+  }
+  static endTimer(timer) {
+    if (!timer || !PERF_MONITOR)
+      return;
+    const duration = performance.now() - timer.start;
+    const counter = this.perfCounters.get(timer.name) || { count: 0, totalTime: 0, maxTime: 0 };
+    counter.count++;
+    counter.totalTime += duration;
+    counter.maxTime = Math.max(counter.maxTime, duration);
+    this.perfCounters.set(timer.name, counter);
+    if (duration > 16) {
+      console.warn(`[Track Edits PERF] ${timer.name} took ${duration.toFixed(2)}ms (>16ms target)`);
+    }
+  }
+  static getReport() {
+    return {
+      recentLogs: this.logs.slice(-50),
+      perfStats: Object.fromEntries(this.perfCounters.entries()),
+      summary: {
+        totalLogs: this.logs.length,
+        perfCounters: this.perfCounters.size,
+        slowOperations: Array.from(this.perfCounters.entries()).filter(([_, stats]) => stats.maxTime > 16).map(([name, stats]) => ({ name, maxTime: stats.maxTime, avgTime: stats.totalTime / stats.count }))
+      }
+    };
+  }
+  static clear() {
+    this.logs = [];
+    this.perfCounters.clear();
+  }
+};
+DebugMonitor.logs = [];
+DebugMonitor.perfCounters = /* @__PURE__ */ new Map();
+var currentPluginInstance = null;
+var isRejectingEdit = false;
+if (DEBUG_MODE) {
+  window.TrackEditsDebug = {
+    getReport: () => DebugMonitor.getReport(),
+    clearLogs: () => DebugMonitor.clear(),
+    getCurrentState: () => {
+      var _a;
+      return {
+        currentPluginInstance: !!currentPluginInstance,
+        isRejectingEdit,
+        currentEdits: ((_a = currentPluginInstance == null ? void 0 : currentPluginInstance.currentEdits) == null ? void 0 : _a.length) || 0,
+        hasSession: !!(currentPluginInstance == null ? void 0 : currentPluginInstance.currentSession)
+      };
+    },
+    logCurrent: () => {
+      const state = window.TrackEditsDebug.getCurrentState();
+      console.log("[Track Edits Debug]", state);
+      return state;
+    }
+  };
+  console.log("[Track Edits] Debug mode enabled. Access via window.TrackEditsDebug");
+}
+var addDecorationEffect = import_state.StateEffect.define();
+var removeDecorationEffect = import_state.StateEffect.define();
+var DeletionWidget = class extends import_view.WidgetType {
+  constructor(deletedText, editId) {
+    super();
+    this.deletedText = deletedText;
+    this.editId = editId;
+  }
+  toDOM() {
+    const span = document.createElement("span");
+    span.className = "track-edits-decoration track-edits-decoration-delete";
+    span.textContent = this.deletedText;
+    span.setAttribute("data-edit-id", this.editId);
+    span.style.cssText = `
+      color: #f85149;
+      text-decoration: line-through;
+      opacity: 0.7;
+      background: transparent;
+    `;
+    return span;
+  }
+};
+function createEditDecoration(edit) {
+  const attributes = { "data-edit-id": edit.id };
+  if (edit.type === "insert") {
+    return import_view.Decoration.mark({
+      class: "track-edits-decoration track-edits-decoration-insert",
+      attributes
+    });
+  } else if (edit.type === "delete") {
+    return import_view.Decoration.widget({
+      widget: new DeletionWidget(edit.removedText || "", edit.id),
+      side: -1
+    });
+  }
+  return import_view.Decoration.mark({
+    class: "track-edits-decoration track-edits-decoration-insert",
+    attributes
+  });
+}
+var editDecorationField = import_state.StateField.define({
+  create() {
+    DebugMonitor.log("STATEFIELD_CREATE", { message: "StateField created with empty decoration set" });
+    return import_view.Decoration.none;
+  },
+  update(decorations, tr) {
+    var _a, _b;
+    const timer = DebugMonitor.startTimer("StateField.update");
+    const initialSize = decorations.size;
+    DebugMonitor.log("STATEFIELD_UPDATE_START", {
+      hasChanges: !!tr.changes,
+      changeCount: tr.changes ? tr.changes.desc.length : 0,
+      effectCount: tr.effects.length,
+      currentDecorations: initialSize,
+      docLength: tr.newDoc.length
+    });
+    const mapTimer = DebugMonitor.startTimer("decorations.map");
+    decorations = decorations.map(tr.changes);
+    DebugMonitor.endTimer(mapTimer);
+    let addedDecorations = 0;
+    let removedDecorations = 0;
+    for (const effect of tr.effects) {
+      if (effect.is(addDecorationEffect)) {
+        const { edit, decoration } = effect.value;
+        DebugMonitor.log("ADD_DECORATION_EFFECT", {
+          editId: edit.id,
+          editType: edit.type,
+          position: { from: edit.from, to: edit.to },
+          textLength: ((_a = edit.text) == null ? void 0 : _a.length) || 0
+        });
+        if (edit.type === "delete") {
+          const pos = edit.from;
+          decorations = decorations.update({
+            add: [decoration.range(pos)]
+          });
+          addedDecorations++;
+        } else if (edit.type === "insert") {
+          const start = edit.from;
+          const end = start + (((_b = edit.text) == null ? void 0 : _b.length) || 0);
+          if (end <= tr.newDoc.length && start <= end && start >= 0) {
+            decorations = decorations.update({
+              add: [decoration.range(start, end)]
+            });
+            addedDecorations++;
+          } else {
+            DebugMonitor.log("INVALID_DECORATION_POSITION", {
+              editId: edit.id,
+              start,
+              end,
+              docLength: tr.newDoc.length,
+              reason: "Position out of bounds"
+            });
+          }
+        }
+      } else if (effect.is(removeDecorationEffect)) {
+        const editId = effect.value;
+        DebugMonitor.log("REMOVE_DECORATION_EFFECT", { editId });
+        decorations = decorations.update({
+          filter: (from, to, decoration) => {
+            var _a2;
+            const spec = decoration.spec;
+            if (((_a2 = spec == null ? void 0 : spec.attributes) == null ? void 0 : _a2["data-edit-id"]) === editId) {
+              removedDecorations++;
+              return false;
+            }
+            if ((spec == null ? void 0 : spec.widget) && spec.widget.editId === editId) {
+              removedDecorations++;
+              return false;
+            }
+            return true;
+          }
+        });
+      }
+    }
+    const finalSize = decorations.size;
+    DebugMonitor.log("STATEFIELD_UPDATE_END", {
+      initialSize,
+      finalSize,
+      addedDecorations,
+      removedDecorations,
+      netChange: finalSize - initialSize
+    });
+    DebugMonitor.endTimer(timer);
+    return decorations;
+  },
+  provide: (f) => import_view.EditorView.decorations.from(f)
+});
+var changeDetectionPlugin = import_view.ViewPlugin.fromClass(class {
+  constructor(view) {
+    this.view = view;
+  }
+  update(update) {
+    const timer = DebugMonitor.startTimer("ViewPlugin.update");
+    DebugMonitor.log("UPDATE", {
+      docChanged: update.docChanged,
+      isRejectingEdit,
+      hasPluginInstance: !!currentPluginInstance,
+      changeCount: update.changes ? update.changes.desc.length : 0,
+      viewportChanged: update.viewportChanged,
+      focusChanged: update.focusChanged
+    });
+    if (update.docChanged && !isRejectingEdit && currentPluginInstance) {
+      const extractTimer = DebugMonitor.startTimer("extractEditsFromUpdate");
+      const edits = this.extractEditsFromUpdate(update);
+      DebugMonitor.endTimer(extractTimer);
+      DebugMonitor.log("EDITS_EXTRACTED", {
+        editCount: edits.length,
+        edits: edits.map((e) => {
+          var _a;
+          return { id: e.id, type: e.type, from: e.from, to: e.to, textLength: ((_a = e.text) == null ? void 0 : _a.length) || 0 };
+        })
+      });
+      if (edits.length > 0) {
+        const decorationTimer = DebugMonitor.startTimer("createDecorations");
+        const decorationEffects = edits.map((edit) => {
+          const decoration = createEditDecoration(edit);
+          return addDecorationEffect.of({ edit, decoration });
+        });
+        DebugMonitor.endTimer(decorationTimer);
+        DebugMonitor.log("DECORATIONS_CREATED", {
+          effectCount: decorationEffects.length
+        });
+        requestAnimationFrame(() => {
+          const dispatchTimer = DebugMonitor.startTimer("viewDispatch");
+          this.view.dispatch({ effects: decorationEffects });
+          DebugMonitor.endTimer(dispatchTimer);
+          DebugMonitor.log("DECORATIONS_DISPATCHED", {
+            effectCount: decorationEffects.length
+          });
+        });
+        currentPluginInstance.handleEditsFromCodeMirror(edits);
+      }
+    }
+    DebugMonitor.endTimer(timer);
+  }
+  extractEditsFromUpdate(update) {
+    const edits = [];
+    update.changes.iterChanges((from, to, fromB, toB, insert) => {
+      const removedText = update.startState.doc.sliceString(from, to);
+      const insertedText = insert.toString();
+      if (removedText) {
+        edits.push({
+          id: generateId(),
+          type: "delete",
+          from,
+          to,
+          text: "",
+          removedText,
+          timestamp: Date.now()
+        });
+      }
+      if (insertedText) {
+        edits.push({
+          id: generateId(),
+          type: "insert",
+          from: fromB,
+          to: toB,
+          text: insertedText,
+          removedText: "",
+          timestamp: Date.now()
+        });
+      }
+    });
+    return edits;
+  }
+});
 var TrackEditsPlugin = class extends import_obsidian4.Plugin {
   constructor() {
     super(...arguments);
@@ -790,10 +1069,12 @@ var TrackEditsPlugin = class extends import_obsidian4.Plugin {
   }
   async onload() {
     await this.loadSettings();
+    currentPluginInstance = this;
     this.editTracker = new EditTracker(this);
     this.editRenderer = new EditRenderer(this);
     this.clusterManager = new EditClusterManager(this);
     this.initializeGlobalAPI();
+    this.registerEditorExtension([changeDetectionPlugin, editDecorationField]);
     this.registerSafeEventHandlers();
     this.registerView("track-edits-side-panel", (leaf) => new EditSidePanelView(leaf, this));
     this.addCommands();
@@ -838,32 +1119,6 @@ var TrackEditsPlugin = class extends import_obsidian4.Plugin {
   }
   registerSafeEventHandlers() {
     console.log("[Track Edits DEBUG] Registering event handlers");
-    this.registerEvent(
-      this.app.workspace.on("editor-change", (editor, info) => {
-        console.log("[Track Edits DEBUG] editor-change event fired");
-        console.log("[Track Edits DEBUG] isProcessingChange:", this.isProcessingChange);
-        console.log("[Track Edits DEBUG] enableTracking:", this.settings.enableTracking);
-        console.log("[Track Edits DEBUG] currentSession exists:", !!this.currentSession);
-        if (this.isProcessingChange) {
-          console.log("[Track Edits DEBUG] Skipping due to isProcessingChange");
-          return;
-        }
-        if (!this.settings.enableTracking || !this.currentSession) {
-          console.log("[Track Edits DEBUG] Skipping due to enableTracking or no session");
-          return;
-        }
-        this.isProcessingChange = true;
-        requestAnimationFrame(() => {
-          try {
-            this.handleEditorChange(editor, info);
-          } catch (error) {
-            console.error("Track Edits: Error in editor change handler:", error);
-          } finally {
-            this.isProcessingChange = false;
-          }
-        });
-      })
-    );
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => {
         if (this.isRestartingSession)
@@ -1003,6 +1258,81 @@ var TrackEditsPlugin = class extends import_obsidian4.Plugin {
       name: "Clear edit history",
       callback: () => this.clearEditHistory()
     });
+    if (DEBUG_MODE) {
+      this.addCommand({
+        id: "debug-show-report",
+        name: "\u{1F41B} Show Debug Report",
+        callback: () => {
+          const report = DebugMonitor.getReport();
+          const modal = document.createElement("div");
+          modal.style.cssText = `
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 80%; max-width: 800px; height: 70%; 
+            background: var(--background-primary); border: 1px solid var(--background-modifier-border);
+            border-radius: 8px; padding: 20px; z-index: 10000;
+            overflow-y: auto; font-family: var(--font-monospace);
+          `;
+          const reportText = JSON.stringify(report, null, 2);
+          modal.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+              <h2>Track Edits Debug Report</h2>
+              <div>
+                <button onclick="navigator.clipboard.writeText(this.dataset.report)" data-report="${reportText.replace(/"/g, "&quot;")}" style="padding: 5px 10px; margin-right: 5px;">Copy All</button>
+                <button onclick="this.parentElement.parentElement.parentElement.remove()" style="padding: 5px 10px;">Close</button>
+              </div>
+            </div>
+            <div style="margin-bottom: 15px;">
+              <h3>Performance Stats <button onclick="navigator.clipboard.writeText(JSON.stringify(${JSON.stringify(report.perfStats)}, null, 2))" style="font-size: 11px; padding: 2px 5px;">Copy</button></h3>
+              <pre style="user-select: text; cursor: text; background: var(--background-secondary); padding: 10px; border-radius: 4px;">${JSON.stringify(report.perfStats, null, 2)}</pre>
+            </div>
+            <div style="margin-bottom: 15px;">
+              <h3>Summary <button onclick="navigator.clipboard.writeText(JSON.stringify(${JSON.stringify(report.summary)}, null, 2))" style="font-size: 11px; padding: 2px 5px;">Copy</button></h3>
+              <pre style="user-select: text; cursor: text; background: var(--background-secondary); padding: 10px; border-radius: 4px;">${JSON.stringify(report.summary, null, 2)}</pre>
+            </div>
+            <div>
+              <h3>Recent Logs (Last 50) <button onclick="navigator.clipboard.writeText(JSON.stringify(${JSON.stringify(report.recentLogs)}, null, 2))" style="font-size: 11px; padding: 2px 5px;">Copy</button></h3>
+              <pre style="user-select: text; cursor: text; background: var(--background-secondary); padding: 10px; border-radius: 4px; font-size: 11px; max-height: 400px; overflow-y: auto;">${JSON.stringify(report.recentLogs, null, 2)}</pre>
+            </div>
+          `;
+          document.body.appendChild(modal);
+        }
+      });
+      this.addCommand({
+        id: "debug-clear-logs",
+        name: "\u{1F41B} Clear Debug Logs",
+        callback: () => {
+          DebugMonitor.clear();
+          console.log("[Track Edits] Debug logs cleared");
+        }
+      });
+      this.addCommand({
+        id: "debug-current-state",
+        name: "\u{1F41B} Show Current State",
+        callback: () => {
+          const state = {
+            currentSession: this.currentSession,
+            currentEdits: this.currentEdits.length,
+            isRejectingEdit,
+            hasPluginInstance: !!currentPluginInstance,
+            settings: this.settings,
+            sidePanelView: !!this.sidePanelView
+          };
+          console.log("[Track Edits] Current State:", state);
+        }
+      });
+      this.addCommand({
+        id: "debug-dump-logs-console",
+        name: "\u{1F41B} Dump Logs to Console",
+        callback: () => {
+          const report = DebugMonitor.getReport();
+          console.log("=== TRACK EDITS DEBUG REPORT ===");
+          console.log("Performance Stats:", report.perfStats);
+          console.log("Summary:", report.summary);
+          console.log("Recent Logs:", report.recentLogs);
+          console.log("=== END REPORT ===");
+        }
+      });
+    }
   }
   startTracking() {
     if (this.currentSession && !this.isRestartingSession) {
@@ -1149,6 +1479,34 @@ var TrackEditsPlugin = class extends import_obsidian4.Plugin {
   }
   rejectEditCluster(clusterId) {
     this.acceptEditCluster(clusterId);
+  }
+  handleEditsFromCodeMirror(edits) {
+    const timer = DebugMonitor.startTimer("handleEditsFromCodeMirror");
+    DebugMonitor.log("HANDLE_EDITS", {
+      editCount: edits.length,
+      enableTracking: this.settings.enableTracking,
+      hasSession: !!this.currentSession,
+      currentEditsCount: this.currentEdits.length,
+      edits: edits.map((e) => ({ id: e.id, type: e.type, from: e.from, to: e.to }))
+    });
+    if (!this.settings.enableTracking || !this.currentSession) {
+      DebugMonitor.log("HANDLE_EDITS_SKIPPED", {
+        reason: !this.settings.enableTracking ? "tracking disabled" : "no session"
+      });
+      DebugMonitor.endTimer(timer);
+      return;
+    }
+    this.currentEdits.push(...edits);
+    const trackerTimer = DebugMonitor.startTimer("editTracker.recordChanges");
+    this.editTracker.recordChanges(this.currentSession.id, edits);
+    DebugMonitor.endTimer(trackerTimer);
+    this.debouncedPanelUpdate();
+    this.debouncedSave();
+    DebugMonitor.log("HANDLE_EDITS_COMPLETE", {
+      processedCount: edits.length,
+      totalEdits: this.currentEdits.length
+    });
+    DebugMonitor.endTimer(timer);
   }
 };
 //# sourceMappingURL=main.js.map

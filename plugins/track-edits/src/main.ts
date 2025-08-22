@@ -6,8 +6,8 @@ import { EditTracker } from './edit-tracker';
 import { EditRenderer } from './edit-renderer';
 import { EditSidePanelView } from './side-panel-view';
 import { EditClusterManager } from './edit-cluster-manager';
-import { EditSession, EditChange, WriterrlGlobalAPI } from '@shared/types';
-import { generateId, debounce } from '@shared/utils';
+import { EditSession, EditChange, WriterrlGlobalAPI } from '../../../shared/types';
+import { generateId, debounce } from '../../../shared/utils';
 
 interface TrackEditsSettings {
   enableTracking: boolean;
@@ -35,9 +35,90 @@ const DEFAULT_SETTINGS: TrackEditsSettings = {
   showSidePanelOnStart: true
 };
 
+// Development monitoring - remove before production
+const DEBUG_MODE = true;
+const PERF_MONITOR = true;
+
+class DebugMonitor {
+  private static logs: { timestamp: number; type: string; data: any }[] = [];
+  private static perfCounters = new Map<string, { count: number; totalTime: number; maxTime: number }>();
+  
+  static log(type: string, data: any) {
+    if (!DEBUG_MODE) return;
+    this.logs.push({ timestamp: Date.now(), type, data });
+    
+    // Log with expanded object details for better visibility
+    console.log(`[Track Edits ${type}]`, JSON.stringify(data, null, 2));
+    
+    // Keep only last 1000 logs
+    if (this.logs.length > 1000) {
+      this.logs.splice(0, 500);
+    }
+  }
+  
+  static startTimer(name: string) {
+    if (!PERF_MONITOR) return null;
+    return { name, start: performance.now() };
+  }
+  
+  static endTimer(timer: { name: string; start: number } | null) {
+    if (!timer || !PERF_MONITOR) return;
+    const duration = performance.now() - timer.start;
+    
+    const counter = this.perfCounters.get(timer.name) || { count: 0, totalTime: 0, maxTime: 0 };
+    counter.count++;
+    counter.totalTime += duration;
+    counter.maxTime = Math.max(counter.maxTime, duration);
+    this.perfCounters.set(timer.name, counter);
+    
+    if (duration > 16) {
+      console.warn(`[Track Edits PERF] ${timer.name} took ${duration.toFixed(2)}ms (>16ms target)`);
+    }
+  }
+  
+  static getReport() {
+    return {
+      recentLogs: this.logs.slice(-50),
+      perfStats: Object.fromEntries(this.perfCounters.entries()),
+      summary: {
+        totalLogs: this.logs.length,
+        perfCounters: this.perfCounters.size,
+        slowOperations: Array.from(this.perfCounters.entries())
+          .filter(([_, stats]) => stats.maxTime > 16)
+          .map(([name, stats]) => ({ name, maxTime: stats.maxTime, avgTime: stats.totalTime / stats.count }))
+      }
+    };
+  }
+  
+  static clear() {
+    this.logs = [];
+    this.perfCounters.clear();
+  }
+}
+
 // Global state for CodeMirror integration
 let currentPluginInstance: TrackEditsPlugin | null = null;
 let isRejectingEdit = false;
+
+// DEBUG: Add global access for debugging
+if (DEBUG_MODE) {
+  (window as any).TrackEditsDebug = {
+    getReport: () => DebugMonitor.getReport(),
+    clearLogs: () => DebugMonitor.clear(),
+    getCurrentState: () => ({
+      currentPluginInstance: !!currentPluginInstance,
+      isRejectingEdit,
+      currentEdits: currentPluginInstance?.currentEdits?.length || 0,
+      hasSession: !!currentPluginInstance?.currentSession
+    }),
+    logCurrent: () => {
+      const state = (window as any).TrackEditsDebug.getCurrentState();
+      console.log('[Track Edits Debug]', state);
+      return state;
+    }
+  };
+  console.log('[Track Edits] Debug mode enabled. Access via window.TrackEditsDebug');
+}
 
 // State effects for decoration management
 const addDecorationEffect = StateEffect.define<{edit: EditChange, decoration: Decoration}>();
@@ -51,7 +132,7 @@ class DeletionWidget extends WidgetType {
   
   toDOM(): HTMLElement {
     const span = document.createElement('span');
-    span.className = 'track-edit-deleted-widget';
+    span.className = 'track-edits-decoration track-edits-decoration-delete';
     span.textContent = this.deletedText;
     span.setAttribute('data-edit-id', this.editId);
     span.style.cssText = `
@@ -70,7 +151,7 @@ function createEditDecoration(edit: EditChange): Decoration {
   
   if (edit.type === 'insert') {
     return Decoration.mark({
-      class: 'track-edit-added',
+      class: 'track-edits-decoration track-edits-decoration-insert',
       attributes: attributes
     });
   } else if (edit.type === 'delete') {
@@ -81,22 +162,49 @@ function createEditDecoration(edit: EditChange): Decoration {
   }
   
   // Fallback
-  return Decoration.mark({ class: 'track-edit-added', attributes });
+  return Decoration.mark({ 
+    class: 'track-edits-decoration track-edits-decoration-insert', 
+    attributes 
+  });
 }
 
 // StateField for managing decorations
 const editDecorationField = StateField.define<DecorationSet>({
   create() {
+    DebugMonitor.log('STATEFIELD_CREATE', { message: 'StateField created with empty decoration set' });
     return Decoration.none;
   },
   update(decorations, tr) {
+    const timer = DebugMonitor.startTimer('StateField.update');
+    
+    const initialSize = decorations.size;
+    DebugMonitor.log('STATEFIELD_UPDATE_START', {
+      hasChanges: !!tr.changes,
+      changeCount: tr.changes ? tr.changes.desc.length : 0,
+      effectCount: tr.effects.length,
+      currentDecorations: initialSize,
+      docLength: tr.newDoc.length
+    });
+    
     // Map existing decorations to new positions
+    const mapTimer = DebugMonitor.startTimer('decorations.map');
     decorations = decorations.map(tr.changes);
+    DebugMonitor.endTimer(mapTimer);
+    
+    let addedDecorations = 0;
+    let removedDecorations = 0;
     
     // Process effects for new decorations
     for (const effect of tr.effects) {
       if (effect.is(addDecorationEffect)) {
         const { edit, decoration } = effect.value;
+        
+        DebugMonitor.log('ADD_DECORATION_EFFECT', {
+          editId: edit.id,
+          editType: edit.type,
+          position: { from: edit.from, to: edit.to },
+          textLength: edit.text?.length || 0
+        });
         
         if (edit.type === 'delete') {
           // Widget decorations for deletions
@@ -104,6 +212,7 @@ const editDecorationField = StateField.define<DecorationSet>({
           decorations = decorations.update({
             add: [decoration.range(pos)]
           });
+          addedDecorations++;
         } else if (edit.type === 'insert') {
           // Mark decorations for additions
           const start = edit.from;
@@ -113,21 +222,47 @@ const editDecorationField = StateField.define<DecorationSet>({
             decorations = decorations.update({
               add: [decoration.range(start, end)]
             });
+            addedDecorations++;
+          } else {
+            DebugMonitor.log('INVALID_DECORATION_POSITION', {
+              editId: edit.id,
+              start, end,
+              docLength: tr.newDoc.length,
+              reason: 'Position out of bounds'
+            });
           }
         }
       } else if (effect.is(removeDecorationEffect)) {
         const editId = effect.value;
+        DebugMonitor.log('REMOVE_DECORATION_EFFECT', { editId });
+        
         decorations = decorations.update({
           filter: (from, to, decoration) => {
             const spec = (decoration as any).spec;
-            if (spec?.attributes?.['data-edit-id'] === editId) return false;
-            if (spec?.widget && spec.widget.editId === editId) return false;
+            if (spec?.attributes?.['data-edit-id'] === editId) {
+              removedDecorations++;
+              return false;
+            }
+            if (spec?.widget && spec.widget.editId === editId) {
+              removedDecorations++;
+              return false;
+            }
             return true;
           }
         });
       }
     }
     
+    const finalSize = decorations.size;
+    DebugMonitor.log('STATEFIELD_UPDATE_END', {
+      initialSize,
+      finalSize,
+      addedDecorations,
+      removedDecorations,
+      netChange: finalSize - initialSize
+    });
+    
+    DebugMonitor.endTimer(timer);
     return decorations;
   },
   provide: f => EditorView.decorations.from(f)
@@ -138,24 +273,56 @@ const changeDetectionPlugin = ViewPlugin.fromClass(class {
   constructor(private view: EditorView) {}
   
   update(update: ViewUpdate) {
+    const timer = DebugMonitor.startTimer('ViewPlugin.update');
+    
+    DebugMonitor.log('UPDATE', {
+      docChanged: update.docChanged,
+      isRejectingEdit,
+      hasPluginInstance: !!currentPluginInstance,
+      changeCount: update.changes ? update.changes.desc.length : 0,
+      viewportChanged: update.viewportChanged,
+      focusChanged: update.focusChanged
+    });
+    
     if (update.docChanged && !isRejectingEdit && currentPluginInstance) {
+      const extractTimer = DebugMonitor.startTimer('extractEditsFromUpdate');
       const edits = this.extractEditsFromUpdate(update);
+      DebugMonitor.endTimer(extractTimer);
+      
+      DebugMonitor.log('EDITS_EXTRACTED', {
+        editCount: edits.length,
+        edits: edits.map(e => ({ id: e.id, type: e.type, from: e.from, to: e.to, textLength: e.text?.length || 0 }))
+      });
       
       if (edits.length > 0) {
         // Add decorations immediately
+        const decorationTimer = DebugMonitor.startTimer('createDecorations');
         const decorationEffects = edits.map(edit => {
           const decoration = createEditDecoration(edit);
           return addDecorationEffect.of({ edit, decoration });
         });
+        DebugMonitor.endTimer(decorationTimer);
+        
+        DebugMonitor.log('DECORATIONS_CREATED', {
+          effectCount: decorationEffects.length
+        });
         
         requestAnimationFrame(() => {
+          const dispatchTimer = DebugMonitor.startTimer('viewDispatch');
           this.view.dispatch({ effects: decorationEffects });
+          DebugMonitor.endTimer(dispatchTimer);
+          
+          DebugMonitor.log('DECORATIONS_DISPATCHED', {
+            effectCount: decorationEffects.length
+          });
         });
         
         // Update plugin state
         currentPluginInstance.handleEditsFromCodeMirror(edits);
       }
     }
+    
+    DebugMonitor.endTimer(timer);
   }
   
   extractEditsFromUpdate(update: ViewUpdate): EditChange[] {
@@ -182,8 +349,8 @@ const changeDetectionPlugin = ViewPlugin.fromClass(class {
         edits.push({
           id: generateId(),
           type: 'insert',
-          from: from,
-          to: from,
+          from: fromB,
+          to: toB,
           text: insertedText,
           removedText: '',
           timestamp: Date.now()
@@ -290,35 +457,7 @@ export default class TrackEditsPlugin extends Plugin {
   private registerSafeEventHandlers() {
     console.log('[Track Edits DEBUG] Registering event handlers');
     
-    // Use Obsidian's native editor-change event without CodeMirror conflicts
-    this.registerEvent(
-      this.app.workspace.on('editor-change', (editor: Editor, info: MarkdownView | any) => {
-        console.log('[Track Edits DEBUG] editor-change event fired');
-        console.log('[Track Edits DEBUG] isProcessingChange:', this.isProcessingChange);
-        console.log('[Track Edits DEBUG] enableTracking:', this.settings.enableTracking);
-        console.log('[Track Edits DEBUG] currentSession exists:', !!this.currentSession);
-        
-        if (this.isProcessingChange) {
-          console.log('[Track Edits DEBUG] Skipping due to isProcessingChange');
-          return; // Prevent recursion
-        }
-        if (!this.settings.enableTracking || !this.currentSession) {
-          console.log('[Track Edits DEBUG] Skipping due to enableTracking or no session');
-          return;
-        }
-        
-        this.isProcessingChange = true;
-        requestAnimationFrame(() => {
-          try {
-            this.handleEditorChange(editor, info);
-          } catch (error) {
-            console.error('Track Edits: Error in editor change handler:', error);
-          } finally {
-            this.isProcessingChange = false;
-          }
-        });
-      })
-    );
+    // CodeMirror ViewPlugin handles edit detection - no need for editor-change events
     
     // Handle active leaf changes with proper session state checking
     this.registerEvent(
@@ -510,6 +649,88 @@ export default class TrackEditsPlugin extends Plugin {
       name: 'Clear edit history',
       callback: () => this.clearEditHistory()
     });
+
+    // DEBUG COMMANDS - Remove before production
+    if (DEBUG_MODE) {
+      this.addCommand({
+        id: 'debug-show-report',
+        name: '🐛 Show Debug Report',
+        callback: () => {
+          const report = DebugMonitor.getReport();
+          const modal = document.createElement('div');
+          modal.style.cssText = `
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 80%; max-width: 800px; height: 70%; 
+            background: var(--background-primary); border: 1px solid var(--background-modifier-border);
+            border-radius: 8px; padding: 20px; z-index: 10000;
+            overflow-y: auto; font-family: var(--font-monospace);
+          `;
+          
+          const reportText = JSON.stringify(report, null, 2);
+          modal.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+              <h2>Track Edits Debug Report</h2>
+              <div>
+                <button onclick="navigator.clipboard.writeText(this.dataset.report)" data-report="${reportText.replace(/"/g, '&quot;')}" style="padding: 5px 10px; margin-right: 5px;">Copy All</button>
+                <button onclick="this.parentElement.parentElement.parentElement.remove()" style="padding: 5px 10px;">Close</button>
+              </div>
+            </div>
+            <div style="margin-bottom: 15px;">
+              <h3>Performance Stats <button onclick="navigator.clipboard.writeText(JSON.stringify(${JSON.stringify(report.perfStats)}, null, 2))" style="font-size: 11px; padding: 2px 5px;">Copy</button></h3>
+              <pre style="user-select: text; cursor: text; background: var(--background-secondary); padding: 10px; border-radius: 4px;">${JSON.stringify(report.perfStats, null, 2)}</pre>
+            </div>
+            <div style="margin-bottom: 15px;">
+              <h3>Summary <button onclick="navigator.clipboard.writeText(JSON.stringify(${JSON.stringify(report.summary)}, null, 2))" style="font-size: 11px; padding: 2px 5px;">Copy</button></h3>
+              <pre style="user-select: text; cursor: text; background: var(--background-secondary); padding: 10px; border-radius: 4px;">${JSON.stringify(report.summary, null, 2)}</pre>
+            </div>
+            <div>
+              <h3>Recent Logs (Last 50) <button onclick="navigator.clipboard.writeText(JSON.stringify(${JSON.stringify(report.recentLogs)}, null, 2))" style="font-size: 11px; padding: 2px 5px;">Copy</button></h3>
+              <pre style="user-select: text; cursor: text; background: var(--background-secondary); padding: 10px; border-radius: 4px; font-size: 11px; max-height: 400px; overflow-y: auto;">${JSON.stringify(report.recentLogs, null, 2)}</pre>
+            </div>
+          `;
+          
+          document.body.appendChild(modal);
+        }
+      });
+
+      this.addCommand({
+        id: 'debug-clear-logs',
+        name: '🐛 Clear Debug Logs',
+        callback: () => {
+          DebugMonitor.clear();
+          console.log('[Track Edits] Debug logs cleared');
+        }
+      });
+
+      this.addCommand({
+        id: 'debug-current-state',
+        name: '🐛 Show Current State',
+        callback: () => {
+          const state = {
+            currentSession: this.currentSession,
+            currentEdits: this.currentEdits.length,
+            isRejectingEdit,
+            hasPluginInstance: !!currentPluginInstance,
+            settings: this.settings,
+            sidePanelView: !!this.sidePanelView
+          };
+          console.log('[Track Edits] Current State:', state);
+        }
+      });
+
+      this.addCommand({
+        id: 'debug-dump-logs-console',
+        name: '🐛 Dump Logs to Console',
+        callback: () => {
+          const report = DebugMonitor.getReport();
+          console.log('=== TRACK EDITS DEBUG REPORT ===');
+          console.log('Performance Stats:', report.perfStats);
+          console.log('Summary:', report.summary);
+          console.log('Recent Logs:', report.recentLogs);
+          console.log('=== END REPORT ===');
+        }
+      });
+    }
   }
 
   startTracking() {
@@ -700,5 +921,46 @@ export default class TrackEditsPlugin extends Plugin {
   rejectEditCluster(clusterId: string) {
     // For now, just remove from display (could implement undo in future)
     this.acceptEditCluster(clusterId);
+  }
+
+  handleEditsFromCodeMirror(edits: EditChange[]) {
+    const timer = DebugMonitor.startTimer('handleEditsFromCodeMirror');
+    
+    DebugMonitor.log('HANDLE_EDITS', {
+      editCount: edits.length,
+      enableTracking: this.settings.enableTracking,
+      hasSession: !!this.currentSession,
+      currentEditsCount: this.currentEdits.length,
+      edits: edits.map(e => ({ id: e.id, type: e.type, from: e.from, to: e.to }))
+    });
+    
+    if (!this.settings.enableTracking || !this.currentSession) {
+      DebugMonitor.log('HANDLE_EDITS_SKIPPED', {
+        reason: !this.settings.enableTracking ? 'tracking disabled' : 'no session'
+      });
+      DebugMonitor.endTimer(timer);
+      return;
+    }
+
+    // Add edits to current array
+    this.currentEdits.push(...edits);
+
+    // Record changes in tracker
+    const trackerTimer = DebugMonitor.startTimer('editTracker.recordChanges');
+    this.editTracker.recordChanges(this.currentSession.id, edits);
+    DebugMonitor.endTimer(trackerTimer);
+
+    // Update side panel (debounced)
+    this.debouncedPanelUpdate();
+
+    // Save session (debounced)
+    this.debouncedSave();
+
+    DebugMonitor.log('HANDLE_EDITS_COMPLETE', {
+      processedCount: edits.length,
+      totalEdits: this.currentEdits.length
+    });
+    
+    DebugMonitor.endTimer(timer);
   }
 }
