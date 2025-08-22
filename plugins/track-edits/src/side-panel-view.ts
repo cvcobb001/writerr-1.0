@@ -7,6 +7,7 @@ export const SIDE_PANEL_VIEW_TYPE = 'track-edits-side-panel';
 export class EditSidePanelView extends ItemView {
   plugin: TrackEditsPlugin;
   private clusters: EditCluster[] = [];
+  private runOnceBtn: HTMLElement | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: TrackEditsPlugin) {
     super(leaf);
@@ -71,6 +72,9 @@ export class EditSidePanelView extends ItemView {
       text: countText,
       cls: 'track-edits-count'
     });
+
+    // AI Controls section (matching v2.0 design)
+    this.createAIControlsSection(container);
 
     // Accept All / Reject All controls (v1.0 addition that v2.0 doesn't have)
     if (this.clusters.length > 0) {
@@ -229,5 +233,71 @@ export class EditSidePanelView extends ItemView {
     
     // Use batch processing method for better performance
     this.plugin.rejectAllEditClusters(clusterIds);
+  }
+
+  private createAIControlsSection(container: HTMLElement): void {
+    const controlsDiv = container.createEl('div', { cls: 'track-edits-ai-simple' });
+    const controlsLine = controlsDiv.createEl('div', { cls: 'ai-simple-line' });
+    
+    // "AI" label
+    controlsLine.createEl('span', { text: 'AI', cls: 'ai-simple-label' });
+    
+    // Toggle switch (minimal styling)
+    const toggleSwitch = controlsLine.createEl('div', { cls: 'ai-simple-toggle' });
+    toggleSwitch.addClass(this.plugin.settings.aiAlwaysEnabled ? 'on' : 'off');
+    toggleSwitch.setAttribute('title', this.plugin.settings.aiAlwaysEnabled ? 'AI Always On' : 'AI Manual Only');
+    
+    // Toggle click handler
+    toggleSwitch.onclick = () => {
+      this.plugin.settings.aiAlwaysEnabled = !this.plugin.settings.aiAlwaysEnabled;
+      this.plugin.saveSettings();
+      this.renderView(); // Re-render to update toggle state
+    };
+    
+    // "Run Once" button
+    this.runOnceBtn = controlsLine.createEl('button', {
+      text: 'Run Once',
+      cls: this.plugin.settings.aiAlwaysEnabled ? 'ai-simple-btn disabled' : 'ai-simple-btn enabled',
+      title: 'Run AI analysis once on current edits'
+    });
+    
+    // Run Once click handler (only if not always enabled)
+    this.runOnceBtn.onclick = () => {
+      if (!this.plugin.settings.aiAlwaysEnabled) {
+        this.runAIAnalysisOnce();
+      }
+    };
+  }
+
+  private async runAIAnalysisOnce(): Promise<void> {
+    if (!this.runOnceBtn) return;
+    
+    // Update button state
+    this.runOnceBtn.textContent = 'Running...';
+    this.runOnceBtn.addClass('running');
+    
+    try {
+      // TODO: Call AI analysis method when implemented
+      await this.plugin.runAIAnalysisOnce();
+      
+      // Provide user feedback
+      this.runOnceBtn.textContent = 'Done!';
+      setTimeout(() => {
+        if (this.runOnceBtn) {
+          this.runOnceBtn.textContent = 'Run Once';
+          this.runOnceBtn.removeClass('running');
+        }
+      }, 2000);
+      
+    } catch (error) {
+      console.error('AI analysis failed:', error);
+      this.runOnceBtn.textContent = 'Error';
+      setTimeout(() => {
+        if (this.runOnceBtn) {
+          this.runOnceBtn.textContent = 'Run Once';
+          this.runOnceBtn.removeClass('running');
+        }
+      }, 2000);
+    }
   }
 }

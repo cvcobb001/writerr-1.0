@@ -20,6 +20,11 @@ interface TrackEditsSettings {
   enableClustering: boolean;
   clusterTimeWindow: number;
   showSidePanelOnStart: boolean;
+  // AI Integration settings
+  aiAlwaysEnabled: boolean;
+  aiProvider: string;
+  aiModel: string;
+  systemPromptPath: string;
 }
 
 const DEFAULT_SETTINGS: TrackEditsSettings = {
@@ -32,7 +37,12 @@ const DEFAULT_SETTINGS: TrackEditsSettings = {
   exportFormat: 'json',
   enableClustering: true,
   clusterTimeWindow: 2000,
-  showSidePanelOnStart: true
+  showSidePanelOnStart: true,
+  // AI Integration defaults
+  aiAlwaysEnabled: false,
+  aiProvider: '',
+  aiModel: '',
+  systemPromptPath: 'prompts/system-prompt.md'
 };
 
 // Development monitoring - remove before production
@@ -1364,5 +1374,50 @@ export default class TrackEditsPlugin extends Plugin {
     });
     
     DebugMonitor.endTimer(timer);
+  }
+
+  // AI Integration Methods (stubs for future implementation)
+  async runAIAnalysisOnce(): Promise<void> {
+    console.log('Track Edits: AI analysis triggered manually');
+    
+    // TODO: Implement AI analysis using AI Providers plugin integration
+    // This will analyze current edit clusters and provide insights
+    
+    // For now, just log the current state
+    DebugMonitor.log('AI_ANALYSIS_TRIGGERED', {
+      clustersCount: this.currentEdits.length,
+      hasSession: !!this.currentSession,
+      aiProvider: this.settings.aiProvider,
+      aiModel: this.settings.aiModel
+    });
+    
+    // Simulate AI processing delay
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    
+    console.log('Track Edits: AI analysis complete (stub)');
+  }
+
+  private async loadSystemPrompt(): Promise<string> {
+    try {
+      const promptPath = this.settings.systemPromptPath;
+      const adapter = this.app.vault.adapter;
+      
+      // Check if prompt file exists
+      if (await adapter.exists(promptPath)) {
+        return await adapter.read(promptPath);
+      } else {
+        // Create default prompt file if it doesn't exist
+        const defaultPrompt = await this.getDefaultSystemPrompt();
+        await adapter.write(promptPath, defaultPrompt);
+        return defaultPrompt;
+      }
+    } catch (error) {
+      console.error('Track Edits: Error loading system prompt:', error);
+      return this.getDefaultSystemPrompt();
+    }
+  }
+
+  private async getDefaultSystemPrompt(): Promise<string> {
+    return `# Track Edits AI Analysis System Prompt\n\nYou are a Track Edits SME specializing in analyzing keystroke patterns and typing behavior.\n\nAnalyze edit clusters to identify user intent and provide workflow insights.\n\nFocus on typing patterns, not content quality.`;
   }
 }

@@ -456,6 +456,7 @@ var EditSidePanelView = class extends import_obsidian3.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.clusters = [];
+    this.runOnceBtn = null;
     this.plugin = plugin;
   }
   getViewType() {
@@ -499,6 +500,7 @@ var EditSidePanelView = class extends import_obsidian3.ItemView {
       text: countText,
       cls: "track-edits-count"
     });
+    this.createAIControlsSection(container);
     if (this.clusters.length > 0) {
       const bulkControls = container.createEl("div", { cls: "track-edits-bulk-controls" });
       bulkControls.createEl("span", {
@@ -615,6 +617,54 @@ var EditSidePanelView = class extends import_obsidian3.ItemView {
     }
     const clusterIds = this.clusters.map((cluster) => cluster.id);
     this.plugin.rejectAllEditClusters(clusterIds);
+  }
+  createAIControlsSection(container) {
+    const controlsDiv = container.createEl("div", { cls: "track-edits-ai-simple" });
+    const controlsLine = controlsDiv.createEl("div", { cls: "ai-simple-line" });
+    controlsLine.createEl("span", { text: "AI", cls: "ai-simple-label" });
+    const toggleSwitch = controlsLine.createEl("div", { cls: "ai-simple-toggle" });
+    toggleSwitch.addClass(this.plugin.settings.aiAlwaysEnabled ? "on" : "off");
+    toggleSwitch.setAttribute("title", this.plugin.settings.aiAlwaysEnabled ? "AI Always On" : "AI Manual Only");
+    toggleSwitch.onclick = () => {
+      this.plugin.settings.aiAlwaysEnabled = !this.plugin.settings.aiAlwaysEnabled;
+      this.plugin.saveSettings();
+      this.renderView();
+    };
+    this.runOnceBtn = controlsLine.createEl("button", {
+      text: "Run Once",
+      cls: this.plugin.settings.aiAlwaysEnabled ? "ai-simple-btn disabled" : "ai-simple-btn enabled",
+      title: "Run AI analysis once on current edits"
+    });
+    this.runOnceBtn.onclick = () => {
+      if (!this.plugin.settings.aiAlwaysEnabled) {
+        this.runAIAnalysisOnce();
+      }
+    };
+  }
+  async runAIAnalysisOnce() {
+    if (!this.runOnceBtn)
+      return;
+    this.runOnceBtn.textContent = "Running...";
+    this.runOnceBtn.addClass("running");
+    try {
+      await this.plugin.runAIAnalysisOnce();
+      this.runOnceBtn.textContent = "Done!";
+      setTimeout(() => {
+        if (this.runOnceBtn) {
+          this.runOnceBtn.textContent = "Run Once";
+          this.runOnceBtn.removeClass("running");
+        }
+      }, 2e3);
+    } catch (error) {
+      console.error("AI analysis failed:", error);
+      this.runOnceBtn.textContent = "Error";
+      setTimeout(() => {
+        if (this.runOnceBtn) {
+          this.runOnceBtn.textContent = "Run Once";
+          this.runOnceBtn.removeClass("running");
+        }
+      }, 2e3);
+    }
   }
 };
 
@@ -762,7 +812,12 @@ var DEFAULT_SETTINGS = {
   exportFormat: "json",
   enableClustering: true,
   clusterTimeWindow: 2e3,
-  showSidePanelOnStart: true
+  showSidePanelOnStart: true,
+  // AI Integration defaults
+  aiAlwaysEnabled: false,
+  aiProvider: "",
+  aiModel: "",
+  systemPromptPath: "prompts/system-prompt.md"
 };
 var DEBUG_MODE = true;
 var PERF_MONITOR = true;
@@ -1796,6 +1851,43 @@ var TrackEditsPlugin = class extends import_obsidian4.Plugin {
       totalEdits: this.currentEdits.length
     });
     DebugMonitor.endTimer(timer);
+  }
+  // AI Integration Methods (stubs for future implementation)
+  async runAIAnalysisOnce() {
+    console.log("Track Edits: AI analysis triggered manually");
+    DebugMonitor.log("AI_ANALYSIS_TRIGGERED", {
+      clustersCount: this.currentEdits.length,
+      hasSession: !!this.currentSession,
+      aiProvider: this.settings.aiProvider,
+      aiModel: this.settings.aiModel
+    });
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    console.log("Track Edits: AI analysis complete (stub)");
+  }
+  async loadSystemPrompt() {
+    try {
+      const promptPath = this.settings.systemPromptPath;
+      const adapter = this.app.vault.adapter;
+      if (await adapter.exists(promptPath)) {
+        return await adapter.read(promptPath);
+      } else {
+        const defaultPrompt = await this.getDefaultSystemPrompt();
+        await adapter.write(promptPath, defaultPrompt);
+        return defaultPrompt;
+      }
+    } catch (error) {
+      console.error("Track Edits: Error loading system prompt:", error);
+      return this.getDefaultSystemPrompt();
+    }
+  }
+  async getDefaultSystemPrompt() {
+    return `# Track Edits AI Analysis System Prompt
+
+You are a Track Edits SME specializing in analyzing keystroke patterns and typing behavior.
+
+Analyze edit clusters to identify user intent and provide workflow insights.
+
+Focus on typing patterns, not content quality.`;
   }
 };
 //# sourceMappingURL=main.js.map
