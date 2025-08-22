@@ -374,6 +374,7 @@ export default class TrackEditsPlugin extends Plugin {
   currentSession: EditSession | null = null;
   currentEdits: EditChange[] = [];
   private currentEditorView: EditorView | null = null;
+  private ribbonIconEl: HTMLElement | null = null;
   private debouncedSave = debounce(() => this.saveCurrentSession(), 1000);
   private debouncedPanelUpdate = debounce(() => this.updateSidePanel(), 100);
   private debouncedRibbonClick = debounce(() => this.handleRibbonClick(), 300);
@@ -583,10 +584,20 @@ export default class TrackEditsPlugin extends Plugin {
   }
 
   private addRibbonIcon() {
-    super.addRibbonIcon('edit', 'Track Edits', (evt: MouseEvent) => {
+    this.ribbonIconEl = super.addRibbonIcon('edit', 'Track Edits', (evt: MouseEvent) => {
       // Use debounced handler to prevent rapid clicks
       this.debouncedRibbonClick();
     });
+    this.updateRibbonIcon();
+  }
+
+  private updateRibbonIcon() {
+    if (this.ribbonIconEl) {
+      const isTracking = !!this.currentSession;
+      const tooltipText = isTracking ? 'Track Edits: ON (Click to stop)' : 'Track Edits: OFF (Click to start)';
+      this.ribbonIconEl.setAttribute('aria-label', tooltipText);
+      this.ribbonIconEl.setAttribute('title', tooltipText);
+    }
   }
 
   private handleRibbonClick() {
@@ -791,6 +802,12 @@ export default class TrackEditsPlugin extends Plugin {
     }
     
     console.log('Track Edits v2.0: Started tracking session', this.currentSession.id);
+    
+    // Update ribbon icon tooltip
+    this.updateRibbonIcon();
+    
+    // Update side panel to show new status
+    this.updateSidePanel();
   }
 
   stopTracking() {
@@ -824,6 +841,12 @@ export default class TrackEditsPlugin extends Plugin {
       this.currentEdits = [];
       this.lastActiveFile = null;
     }
+    
+    // Update ribbon icon tooltip
+    this.updateRibbonIcon();
+    
+    // Update side panel to show new status
+    this.updateSidePanel();
   }
 
   private restartSession() {
@@ -1136,6 +1159,101 @@ export default class TrackEditsPlugin extends Plugin {
       remainingEdits: this.currentEdits.length
     });
     
+    DebugMonitor.endTimer(timer);
+  }
+
+  // Batch operations for better performance
+  acceptAllEditClusters(clusterIds: string[]) {
+    const timer = DebugMonitor.startTimer('acceptAllEditClusters');
+    DebugMonitor.log('ACCEPT_ALL_START', { clusterIds, count: clusterIds.length });
+    
+    // Process all clusters without intermediate side panel updates
+    clusterIds.forEach(clusterId => {
+      const cluster = this.clusterManager.getCluster(clusterId);
+      if (cluster && this.currentEditorView) {
+        // Remove decorations for each cluster
+        cluster.edits.forEach(edit => {
+          this.currentEditorView!.dispatch({
+            effects: removeDecorationEffect.of(edit.id)
+          });
+        });
+        
+        // Remove edits from current edits array
+        this.currentEdits = this.currentEdits.filter(edit => 
+          !cluster.edits.find(clusterEdit => clusterEdit.id === edit.id)
+        );
+      }
+    });
+    
+    // Single side panel update at the end
+    this.updateSidePanel();
+    
+    DebugMonitor.log('ACCEPT_ALL_COMPLETE', {
+      processedCount: clusterIds.length,
+      remainingEdits: this.currentEdits.length
+    });
+    DebugMonitor.endTimer(timer);
+  }
+
+  rejectAllEditClusters(clusterIds: string[]) {
+    const timer = DebugMonitor.startTimer('rejectAllEditClusters');
+    DebugMonitor.log('REJECT_ALL_START', { clusterIds, count: clusterIds.length });
+    
+    // Process all clusters without intermediate side panel updates
+    clusterIds.forEach(clusterId => {
+      const cluster = this.clusterManager.getCluster(clusterId);
+      if (cluster && this.currentEditorView) {
+        // Group edits by type
+        const insertionsToRemove = cluster.edits.filter(edit => edit.type === 'insert');
+        const deletionsToRestore = cluster.edits.filter(edit => edit.type === 'delete');
+        
+        // Remove decorations and restore text
+        cluster.edits.forEach(edit => {
+          this.currentEditorView!.dispatch({
+            effects: removeDecorationEffect.of(edit.id)
+          });
+        });
+        
+        // Apply CodeMirror changes for text restoration
+        if (insertionsToRemove.length > 0 || deletionsToRestore.length > 0) {
+          const doc = this.currentEditorView.state.doc;
+          const changes: ChangeSpec[] = [];
+          
+          // Remove insertions and restore deletions
+          for (const edit of insertionsToRemove) {
+            if (edit.text) {
+              const currentText = doc.sliceString(edit.from, edit.from + edit.text.length);
+              if (currentText === edit.text) {
+                changes.push({ from: edit.from, to: edit.from + edit.text.length, insert: '' });
+              }
+            }
+          }
+          
+          for (const edit of deletionsToRestore) {
+            if (edit.removedText) {
+              changes.push({ from: edit.from, to: edit.from, insert: edit.removedText });
+            }
+          }
+          
+          if (changes.length > 0) {
+            this.currentEditorView.dispatch({ changes });
+          }
+        }
+        
+        // Remove edits from current edits array
+        this.currentEdits = this.currentEdits.filter(edit => 
+          !cluster.edits.find(clusterEdit => clusterEdit.id === edit.id)
+        );
+      }
+    });
+    
+    // Single side panel update at the end
+    this.updateSidePanel();
+    
+    DebugMonitor.log('REJECT_ALL_COMPLETE', {
+      processedCount: clusterIds.length,
+      remainingEdits: this.currentEdits.length
+    });
     DebugMonitor.endTimer(timer);
   }
 

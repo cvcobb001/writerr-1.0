@@ -429,6 +429,28 @@
   font-size: 18px;
   font-weight: 600;
   color: var(--text-normal);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Status indicator dot */
+.track-edits-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.track-edits-status-active {
+  background-color: #22c55e;
+  box-shadow: 0 0 4px rgba(34, 197, 94, 0.4);
+}
+
+.track-edits-status-inactive {
+  background-color: #ef4444;
+  box-shadow: 0 0 4px rgba(239, 68, 68, 0.4);
 }
 
 /* Edit count summary */
@@ -438,25 +460,37 @@
   color: var(--text-muted);
 }
 
-/* Bulk controls - v1.0 addition */
+/* Bulk controls - aligned with individual action buttons */
 .track-edits-bulk-controls {
   display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
-  padding-bottom: 12px;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
   border-bottom: 1px solid var(--background-modifier-border);
 }
 
+.track-edits-bulk-text {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+}
+
+.track-edits-bulk-buttons {
+  display: flex;
+  gap: 4px;
+}
+
 .track-edits-bulk-btn {
-  padding: 6px 12px;
-  border-radius: 4px;
   border: none !important;
   background: transparent !important;
-  font-size: 12px;
+  box-shadow: none !important;
+  padding: 4px 6px;
+  margin: 0;
   cursor: pointer;
-  transition: all 0.2s ease;
+  font-size: 16px;
   color: var(--text-muted);
-  border: 1px solid var(--background-modifier-border) !important;
+  transition: all 0.2s ease;
 }
 
 .track-edits-bulk-btn:hover {
@@ -464,37 +498,29 @@
   color: var(--text-normal);
 }
 
-.track-edits-bulk-accept {
-  color: var(--color-green);
-}
-
 .track-edits-bulk-accept:hover {
-  background: rgba(34, 197, 94, 0.1) !important;
-}
-
-.track-edits-bulk-reject {
-  color: var(--color-red);
+  color: #2ea043 !important;
 }
 
 .track-edits-bulk-reject:hover {
-  background: rgba(239, 68, 68, 0.1) !important;
+  color: #f85149 !important;
 }
 
 /* Edit list container */
 .track-edits-list {
-  margin-top: 16px;
+  margin-top: 8px;
 }
 
-/* v2.0 style: Clean cluster items with flexbox layout */
+/* v2.0 style: Clean cluster items with flexbox layout - more compact */
 .track-edit-item {
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 
 .track-cluster-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 4px 0;
+  padding: 2px 0;
 }
 
 .track-cluster-content {

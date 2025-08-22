@@ -46,8 +46,22 @@ export class EditSidePanelView extends ItemView {
     const container = this.containerEl.children[1];
     container.empty();
 
-    // Header - v2.0 style
-    container.createEl('h2', { text: 'Track Edits' });
+    // Header - v2.0 style with status indicator
+    const header = container.createEl('h2');
+    header.createEl('span', { text: 'Track Edits' });
+    
+    // Add status dot
+    const statusDot = header.createEl('span', {
+      cls: 'track-edits-status-dot'
+    });
+    
+    if (this.plugin.currentSession) {
+      statusDot.addClass('track-edits-status-active');
+      statusDot.setAttribute('title', 'Tracking active');
+    } else {
+      statusDot.addClass('track-edits-status-inactive');
+      statusDot.setAttribute('title', 'Tracking stopped');
+    }
 
     // Edit count summary - v2.0 style
     const countText = this.clusters.length === 0 
@@ -62,15 +76,26 @@ export class EditSidePanelView extends ItemView {
     if (this.clusters.length > 0) {
       const bulkControls = container.createEl('div', { cls: 'track-edits-bulk-controls' });
       
-      const acceptAllBtn = bulkControls.createEl('button', {
-        text: 'Accept All',
-        cls: 'track-edits-bulk-btn track-edits-bulk-accept'
+      // Left side: text labels
+      bulkControls.createEl('span', {
+        text: 'Accept / Reject All',
+        cls: 'track-edits-bulk-text'
+      });
+      
+      // Right side: action buttons (aligned with individual buttons)
+      const buttonsContainer = bulkControls.createEl('div', { cls: 'track-edits-bulk-buttons' });
+      
+      const acceptAllBtn = buttonsContainer.createEl('button', {
+        text: '✓',
+        cls: 'track-edits-bulk-btn track-edits-bulk-accept',
+        title: 'Accept all edits'
       });
       acceptAllBtn.onclick = () => this.acceptAllClusters();
       
-      const rejectAllBtn = bulkControls.createEl('button', {
-        text: 'Reject All',
-        cls: 'track-edits-bulk-btn track-edits-bulk-reject'
+      const rejectAllBtn = buttonsContainer.createEl('button', {
+        text: '✗',
+        cls: 'track-edits-bulk-btn track-edits-bulk-reject',
+        title: 'Reject all edits'
       });
       rejectAllBtn.onclick = () => this.rejectAllClusters();
     }
@@ -185,9 +210,11 @@ export class EditSidePanelView extends ItemView {
   }
 
   private acceptAllClusters() {
-    this.clusters.forEach(cluster => {
-      this.plugin.acceptEditCluster(cluster.id);
-    });
+    // Take a snapshot of cluster IDs to avoid issues with array changing during iteration
+    const clusterIds = this.clusters.map(cluster => cluster.id);
+    
+    // Use batch processing method for better performance
+    this.plugin.acceptAllEditClusters(clusterIds);
   }
 
   private rejectAllClusters() {
@@ -197,8 +224,10 @@ export class EditSidePanelView extends ItemView {
       if (!confirmed) return;
     }
     
-    this.clusters.forEach(cluster => {
-      this.plugin.rejectEditCluster(cluster.id);
-    });
+    // Take a snapshot of cluster IDs to avoid issues with array changing during iteration
+    const clusterIds = this.clusters.map(cluster => cluster.id);
+    
+    // Use batch processing method for better performance
+    this.plugin.rejectAllEditClusters(clusterIds);
   }
 }

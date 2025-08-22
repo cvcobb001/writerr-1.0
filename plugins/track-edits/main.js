@@ -266,34 +266,16 @@ var EditRenderer = class {
     this.plugin = plugin;
   }
   showTrackingIndicator() {
-    if (this.trackingIndicator)
-      return;
-    this.trackingIndicator = document.createElement("div");
-    this.trackingIndicator.className = "track-edits-indicator";
-    this.trackingIndicator.innerHTML = "\u{1F534} Tracking";
-    this.trackingIndicator.style.cssText = `
-      position: fixed;
-      top: 10px;
-      right: 60px;
-      background: var(--background-modifier-error);
-      color: var(--text-on-accent);
-      padding: 4px 8px;
-      border-radius: 4px;
-      font-size: 12px;
-      z-index: 1000;
-      opacity: 0.8;
-    `;
-    document.body.appendChild(this.trackingIndicator);
-    console.log("Track Edits v2.0: Showing tracking indicator");
+    console.log("Track Edits v2.0: Tracking started (status shown in side panel)");
   }
   hideTrackingIndicator() {
     try {
       if (this.trackingIndicator && this.trackingIndicator.parentNode) {
         this.trackingIndicator.remove();
         this.trackingIndicator = null;
-        console.log("Track Edits v2.0: Hiding tracking indicator");
       }
       this.clearDecorations();
+      console.log("Track Edits v2.0: Tracking stopped (status shown in side panel)");
     } catch (error) {
       console.error("Track Edits: Error hiding tracking indicator:", error);
       this.trackingIndicator = null;
@@ -500,7 +482,18 @@ var EditSidePanelView = class extends import_obsidian3.ItemView {
   renderView() {
     const container = this.containerEl.children[1];
     container.empty();
-    container.createEl("h2", { text: "Track Edits" });
+    const header = container.createEl("h2");
+    header.createEl("span", { text: "Track Edits" });
+    const statusDot = header.createEl("span", {
+      cls: "track-edits-status-dot"
+    });
+    if (this.plugin.currentSession) {
+      statusDot.addClass("track-edits-status-active");
+      statusDot.setAttribute("title", "Tracking active");
+    } else {
+      statusDot.addClass("track-edits-status-inactive");
+      statusDot.setAttribute("title", "Tracking stopped");
+    }
     const countText = this.clusters.length === 0 ? "No edits to review" : `${this.clusters.length} cluster${this.clusters.length !== 1 ? "s" : ""} to review`;
     container.createEl("p", {
       text: countText,
@@ -508,14 +501,21 @@ var EditSidePanelView = class extends import_obsidian3.ItemView {
     });
     if (this.clusters.length > 0) {
       const bulkControls = container.createEl("div", { cls: "track-edits-bulk-controls" });
-      const acceptAllBtn = bulkControls.createEl("button", {
-        text: "Accept All",
-        cls: "track-edits-bulk-btn track-edits-bulk-accept"
+      bulkControls.createEl("span", {
+        text: "Accept / Reject All",
+        cls: "track-edits-bulk-text"
+      });
+      const buttonsContainer = bulkControls.createEl("div", { cls: "track-edits-bulk-buttons" });
+      const acceptAllBtn = buttonsContainer.createEl("button", {
+        text: "\u2713",
+        cls: "track-edits-bulk-btn track-edits-bulk-accept",
+        title: "Accept all edits"
       });
       acceptAllBtn.onclick = () => this.acceptAllClusters();
-      const rejectAllBtn = bulkControls.createEl("button", {
-        text: "Reject All",
-        cls: "track-edits-bulk-btn track-edits-bulk-reject"
+      const rejectAllBtn = buttonsContainer.createEl("button", {
+        text: "\u2717",
+        cls: "track-edits-bulk-btn track-edits-bulk-reject",
+        title: "Reject all edits"
       });
       rejectAllBtn.onclick = () => this.rejectAllClusters();
     }
@@ -604,9 +604,8 @@ var EditSidePanelView = class extends import_obsidian3.ItemView {
     this.plugin.rejectEditCluster(clusterId);
   }
   acceptAllClusters() {
-    this.clusters.forEach((cluster) => {
-      this.plugin.acceptEditCluster(cluster.id);
-    });
+    const clusterIds = this.clusters.map((cluster) => cluster.id);
+    this.plugin.acceptAllEditClusters(clusterIds);
   }
   rejectAllClusters() {
     if (this.clusters.length > 3) {
@@ -614,9 +613,8 @@ var EditSidePanelView = class extends import_obsidian3.ItemView {
       if (!confirmed)
         return;
     }
-    this.clusters.forEach((cluster) => {
-      this.plugin.rejectEditCluster(cluster.id);
-    });
+    const clusterIds = this.clusters.map((cluster) => cluster.id);
+    this.plugin.rejectAllEditClusters(clusterIds);
   }
 };
 
@@ -1051,6 +1049,7 @@ var TrackEditsPlugin = class extends import_obsidian4.Plugin {
     this.currentSession = null;
     this.currentEdits = [];
     this.currentEditorView = null;
+    this.ribbonIconEl = null;
     this.debouncedSave = debounce(() => this.saveCurrentSession(), 1e3);
     this.debouncedPanelUpdate = debounce(() => this.updateSidePanel(), 100);
     this.debouncedRibbonClick = debounce(() => this.handleRibbonClick(), 300);
@@ -1192,9 +1191,18 @@ var TrackEditsPlugin = class extends import_obsidian4.Plugin {
     return [];
   }
   addRibbonIcon() {
-    super.addRibbonIcon("edit", "Track Edits", (evt) => {
+    this.ribbonIconEl = super.addRibbonIcon("edit", "Track Edits", (evt) => {
       this.debouncedRibbonClick();
     });
+    this.updateRibbonIcon();
+  }
+  updateRibbonIcon() {
+    if (this.ribbonIconEl) {
+      const isTracking = !!this.currentSession;
+      const tooltipText = isTracking ? "Track Edits: ON (Click to stop)" : "Track Edits: OFF (Click to start)";
+      this.ribbonIconEl.setAttribute("aria-label", tooltipText);
+      this.ribbonIconEl.setAttribute("title", tooltipText);
+    }
   }
   handleRibbonClick() {
     if (this.isRestartingSession) {
@@ -1364,6 +1372,8 @@ var TrackEditsPlugin = class extends import_obsidian4.Plugin {
       this.showSidePanel();
     }
     console.log("Track Edits v2.0: Started tracking session", this.currentSession.id);
+    this.updateRibbonIcon();
+    this.updateSidePanel();
   }
   stopTracking() {
     try {
@@ -1390,6 +1400,8 @@ var TrackEditsPlugin = class extends import_obsidian4.Plugin {
       this.currentEdits = [];
       this.lastActiveFile = null;
     }
+    this.updateRibbonIcon();
+    this.updateSidePanel();
   }
   restartSession() {
     try {
@@ -1630,6 +1642,75 @@ var TrackEditsPlugin = class extends import_obsidian4.Plugin {
     this.updateSidePanel();
     DebugMonitor.log("REJECT_CLUSTER_COMPLETE", {
       clusterId,
+      remainingEdits: this.currentEdits.length
+    });
+    DebugMonitor.endTimer(timer);
+  }
+  // Batch operations for better performance
+  acceptAllEditClusters(clusterIds) {
+    const timer = DebugMonitor.startTimer("acceptAllEditClusters");
+    DebugMonitor.log("ACCEPT_ALL_START", { clusterIds, count: clusterIds.length });
+    clusterIds.forEach((clusterId) => {
+      const cluster = this.clusterManager.getCluster(clusterId);
+      if (cluster && this.currentEditorView) {
+        cluster.edits.forEach((edit) => {
+          this.currentEditorView.dispatch({
+            effects: removeDecorationEffect.of(edit.id)
+          });
+        });
+        this.currentEdits = this.currentEdits.filter(
+          (edit) => !cluster.edits.find((clusterEdit) => clusterEdit.id === edit.id)
+        );
+      }
+    });
+    this.updateSidePanel();
+    DebugMonitor.log("ACCEPT_ALL_COMPLETE", {
+      processedCount: clusterIds.length,
+      remainingEdits: this.currentEdits.length
+    });
+    DebugMonitor.endTimer(timer);
+  }
+  rejectAllEditClusters(clusterIds) {
+    const timer = DebugMonitor.startTimer("rejectAllEditClusters");
+    DebugMonitor.log("REJECT_ALL_START", { clusterIds, count: clusterIds.length });
+    clusterIds.forEach((clusterId) => {
+      const cluster = this.clusterManager.getCluster(clusterId);
+      if (cluster && this.currentEditorView) {
+        const insertionsToRemove = cluster.edits.filter((edit) => edit.type === "insert");
+        const deletionsToRestore = cluster.edits.filter((edit) => edit.type === "delete");
+        cluster.edits.forEach((edit) => {
+          this.currentEditorView.dispatch({
+            effects: removeDecorationEffect.of(edit.id)
+          });
+        });
+        if (insertionsToRemove.length > 0 || deletionsToRestore.length > 0) {
+          const doc = this.currentEditorView.state.doc;
+          const changes = [];
+          for (const edit of insertionsToRemove) {
+            if (edit.text) {
+              const currentText = doc.sliceString(edit.from, edit.from + edit.text.length);
+              if (currentText === edit.text) {
+                changes.push({ from: edit.from, to: edit.from + edit.text.length, insert: "" });
+              }
+            }
+          }
+          for (const edit of deletionsToRestore) {
+            if (edit.removedText) {
+              changes.push({ from: edit.from, to: edit.from, insert: edit.removedText });
+            }
+          }
+          if (changes.length > 0) {
+            this.currentEditorView.dispatch({ changes });
+          }
+        }
+        this.currentEdits = this.currentEdits.filter(
+          (edit) => !cluster.edits.find((clusterEdit) => clusterEdit.id === edit.id)
+        );
+      }
+    });
+    this.updateSidePanel();
+    DebugMonitor.log("REJECT_ALL_COMPLETE", {
+      processedCount: clusterIds.length,
       remainingEdits: this.currentEdits.length
     });
     DebugMonitor.endTimer(timer);

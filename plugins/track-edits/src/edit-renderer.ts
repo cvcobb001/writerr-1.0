@@ -13,38 +13,21 @@ export class EditRenderer {
   }
 
   showTrackingIndicator() {
-    if (this.trackingIndicator) return;
-
-    this.trackingIndicator = document.createElement('div');
-    this.trackingIndicator.className = 'track-edits-indicator';
-    this.trackingIndicator.innerHTML = '🔴 Tracking';
-    this.trackingIndicator.style.cssText = `
-      position: fixed;
-      top: 10px;
-      right: 60px;
-      background: var(--background-modifier-error);
-      color: var(--text-on-accent);
-      padding: 4px 8px;
-      border-radius: 4px;
-      font-size: 12px;
-      z-index: 1000;
-      opacity: 0.8;
-    `;
-
-    document.body.appendChild(this.trackingIndicator);
-    console.log('Track Edits v2.0: Showing tracking indicator');
+    // Status is now shown in the side panel - no need for separate indicator
+    console.log('Track Edits v2.0: Tracking started (status shown in side panel)');
   }
 
   hideTrackingIndicator() {
     try {
+      // Remove any lingering tracking indicator if it exists
       if (this.trackingIndicator && this.trackingIndicator.parentNode) {
         this.trackingIndicator.remove();
         this.trackingIndicator = null;
-        console.log('Track Edits v2.0: Hiding tracking indicator');
       }
       
       // Also clear any active decorations
       this.clearDecorations();
+      console.log('Track Edits v2.0: Tracking stopped (status shown in side panel)');
     } catch (error) {
       console.error('Track Edits: Error hiding tracking indicator:', error);
       this.trackingIndicator = null;
