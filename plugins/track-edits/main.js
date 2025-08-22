@@ -500,81 +500,65 @@ var EditSidePanelView = class extends import_obsidian3.ItemView {
   renderView() {
     const container = this.containerEl.children[1];
     container.empty();
-    const header = container.createEl("div", { cls: "track-edits-panel-header" });
-    header.createEl("h3", { text: "Track Edits", cls: "track-edits-panel-title" });
-    const status = header.createEl("div", { cls: "track-edits-panel-status" });
-    if (this.plugin.currentSession) {
-      status.createEl("span", {
-        text: "\u{1F534} Recording",
-        cls: "track-edits-status-recording"
+    container.createEl("h2", { text: "Track Edits" });
+    const countText = this.clusters.length === 0 ? "No edits to review" : `${this.clusters.length} cluster${this.clusters.length !== 1 ? "s" : ""} to review`;
+    container.createEl("p", {
+      text: countText,
+      cls: "track-edits-count"
+    });
+    if (this.clusters.length > 0) {
+      const bulkControls = container.createEl("div", { cls: "track-edits-bulk-controls" });
+      const acceptAllBtn = bulkControls.createEl("button", {
+        text: "Accept All",
+        cls: "track-edits-bulk-btn track-edits-bulk-accept"
       });
-    } else {
-      status.createEl("span", {
-        text: "\u26AA Stopped",
-        cls: "track-edits-status-stopped"
+      acceptAllBtn.onclick = () => this.acceptAllClusters();
+      const rejectAllBtn = bulkControls.createEl("button", {
+        text: "Reject All",
+        cls: "track-edits-bulk-btn track-edits-bulk-reject"
       });
+      rejectAllBtn.onclick = () => this.rejectAllClusters();
     }
-    const clustersContainer = container.createEl("div", { cls: "track-edits-clusters" });
+    const editsList = container.createEl("div", { cls: "track-edits-list" });
     if (this.clusters.length === 0) {
-      clustersContainer.createEl("div", {
-        text: "No recent edits to review",
-        cls: "track-edits-empty-state"
-      });
       return;
     }
-    const clustersHeader = clustersContainer.createEl("div", { cls: "track-edits-clusters-header" });
-    clustersHeader.createEl("h4", { text: "Recent Edit Clusters" });
-    clustersHeader.createEl("span", {
-      text: `${this.clusters.length} cluster${this.clusters.length !== 1 ? "s" : ""}`,
-      cls: "track-edits-cluster-count"
-    });
     this.clusters.forEach((cluster, index) => {
-      this.renderCluster(clustersContainer, cluster, index);
+      this.renderCluster(editsList, cluster, index);
     });
-    const controls = container.createEl("div", { cls: "track-edits-panel-controls" });
-    const acceptAllBtn = controls.createEl("button", {
-      text: "Accept All",
-      cls: "track-edits-btn track-edits-btn-primary"
-    });
-    acceptAllBtn.onclick = () => this.acceptAllClusters();
-    const clearAllBtn = controls.createEl("button", {
-      text: "Clear All",
-      cls: "track-edits-btn track-edits-btn-secondary"
-    });
-    clearAllBtn.onclick = () => this.clearAllClusters();
   }
   renderCluster(container, cluster, index) {
-    const clusterEl = container.createEl("div", { cls: "track-edits-cluster" });
-    const header = clusterEl.createEl("div", { cls: "track-edits-cluster-header" });
-    const title = header.createEl("div", { cls: "track-edits-cluster-title" });
-    title.createEl("span", {
-      text: this.getClusterTitle(cluster),
-      cls: "track-edits-cluster-name"
-    });
-    title.createEl("span", {
-      text: this.getClusterTime(cluster),
-      cls: "track-edits-cluster-time"
-    });
-    const content = clusterEl.createEl("div", { cls: "track-edits-cluster-content" });
-    const preview = content.createEl("div", { cls: "track-edits-cluster-preview" });
+    const clusterItem = container.createEl("div", { cls: "track-edit-item track-cluster-item" });
+    const clusterRow = clusterItem.createEl("div", { cls: "track-cluster-row" });
+    const clusterContent = clusterRow.createEl("div", { cls: "track-cluster-content" });
     const previewText = this.getClusterPreview(cluster);
     if (cluster.type === "word_replacement") {
-      preview.innerHTML = `<span class="track-edits-deleted">${previewText.before}</span> \u2192 <span class="track-edits-added">${previewText.after}</span>`;
+      const deleteSpan = clusterContent.createEl("code", {
+        text: previewText.before || "",
+        cls: "track-edit-deleted"
+      });
+      clusterContent.appendText(" \u2192 ");
+      const addSpan = clusterContent.createEl("code", {
+        text: previewText.after || "",
+        cls: "track-edit-added"
+      });
     } else {
-      preview.innerHTML = `<span class="track-edits-added">${previewText.text}</span>`;
+      clusterContent.createEl("code", {
+        text: previewText.text || "",
+        cls: "track-edit-added"
+      });
     }
-    const stats = content.createEl("div", { cls: "track-edits-cluster-stats" });
-    stats.createEl("span", { text: `${cluster.edits.length} edit${cluster.edits.length !== 1 ? "s" : ""}` });
-    stats.createEl("span", { text: `${cluster.wordCount} word${cluster.wordCount !== 1 ? "s" : ""}` });
-    const actions = clusterEl.createEl("div", { cls: "track-edits-cluster-actions" });
-    const acceptBtn = actions.createEl("button", {
-      text: "\u2713 Accept",
-      cls: "track-edits-btn track-edits-btn-accept"
+    const buttonsContainer = clusterRow.createEl("div", { cls: "track-edit-buttons" });
+    const acceptBtn = buttonsContainer.createEl("button", {
+      text: "\u2713",
+      cls: "track-edit-btn track-edit-btn-accept",
+      title: "Accept edit"
     });
     acceptBtn.onclick = () => this.acceptCluster(cluster.id);
-    const rejectBtn = actions.createEl("button", {
-      text: "\u2717 Reject",
-      cls: "track-edits-btn track-edits-btn-reject"
+    const rejectBtn = buttonsContainer.createEl("button", {
+      text: "\u2717",
+      cls: "track-edit-btn track-edit-btn-reject",
+      title: "Reject edit"
     });
     rejectBtn.onclick = () => this.rejectCluster(cluster.id);
   }
@@ -624,7 +608,12 @@ var EditSidePanelView = class extends import_obsidian3.ItemView {
       this.plugin.acceptEditCluster(cluster.id);
     });
   }
-  clearAllClusters() {
+  rejectAllClusters() {
+    if (this.clusters.length > 3) {
+      const confirmed = confirm(`Are you sure you want to reject all ${this.clusters.length} edits? This cannot be undone.`);
+      if (!confirmed)
+        return;
+    }
     this.clusters.forEach((cluster) => {
       this.plugin.rejectEditCluster(cluster.id);
     });

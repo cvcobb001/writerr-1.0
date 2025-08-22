@@ -416,195 +416,139 @@
   }
 }
 
-/* Side Panel Styles */
+/* Side Panel Styles - v2.0 inspired clean design */
 .track-edits-side-panel {
   padding: 16px;
   height: 100%;
   overflow-y: auto;
 }
 
-.track-edits-panel-header {
-  margin-bottom: 16px;
-  border-bottom: 1px solid var(--background-modifier-border);
-  padding-bottom: 12px;
-}
-
-.track-edits-panel-title {
-  margin: 0 0 8px 0;
+/* Clean header */
+.track-edits-side-panel h2 {
+  margin: 0 0 12px 0;
   font-size: 18px;
   font-weight: 600;
+  color: var(--text-normal);
 }
 
-.track-edits-panel-status {
+/* Edit count summary */
+.track-edits-count {
+  margin: 0 0 16px 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* Bulk controls - v1.0 addition */
+.track-edits-bulk-controls {
   display: flex;
-  align-items: center;
   gap: 8px;
-}
-
-.track-edits-status-recording {
-  color: var(--color-red);
-  font-weight: 500;
-  animation: pulse 2s infinite;
-}
-
-.track-edits-status-stopped {
-  color: var(--text-muted);
-  font-weight: 500;
-}
-
-.track-edits-clusters {
   margin-bottom: 16px;
-}
-
-.track-edits-clusters-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-}
-
-.track-edits-clusters-header h4 {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.track-edits-cluster-count {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.track-edits-empty-state {
-  text-align: center;
-  color: var(--text-muted);
-  font-style: italic;
-  padding: 32px 16px;
-}
-
-.track-edits-cluster {
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
-  margin-bottom: 8px;
-  overflow: hidden;
-}
-
-.track-edits-cluster-header {
-  background: var(--background-secondary);
-  padding: 8px 12px;
+  padding-bottom: 12px;
   border-bottom: 1px solid var(--background-modifier-border);
 }
 
-.track-edits-cluster-title {
+.track-edits-bulk-btn {
+  padding: 6px 12px;
+  border-radius: 4px;
+  border: none !important;
+  background: transparent !important;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: var(--text-muted);
+  border: 1px solid var(--background-modifier-border) !important;
+}
+
+.track-edits-bulk-btn:hover {
+  background: var(--background-modifier-hover) !important;
+  color: var(--text-normal);
+}
+
+.track-edits-bulk-accept {
+  color: var(--color-green);
+}
+
+.track-edits-bulk-accept:hover {
+  background: rgba(34, 197, 94, 0.1) !important;
+}
+
+.track-edits-bulk-reject {
+  color: var(--color-red);
+}
+
+.track-edits-bulk-reject:hover {
+  background: rgba(239, 68, 68, 0.1) !important;
+}
+
+/* Edit list container */
+.track-edits-list {
+  margin-top: 16px;
+}
+
+/* v2.0 style: Clean cluster items with flexbox layout */
+.track-edit-item {
+  margin-bottom: 4px;
+}
+
+.track-cluster-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  padding: 4px 0;
 }
 
-.track-edits-cluster-name {
-  font-weight: 500;
-  font-size: 13px;
-}
-
-.track-edits-cluster-time {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.track-edits-cluster-content {
-  padding: 12px;
-}
-
-.track-edits-cluster-preview {
-  margin-bottom: 8px;
+.track-cluster-content {
+  flex: 1;
   font-family: var(--font-monospace);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.4;
 }
 
-.track-edits-deleted {
-  color: var(--color-red);
+.track-edit-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+/* Clean edit text display */
+.track-edit-added {
+  color: #2ea043;
+  background: none !important;
+  border: none !important;
+  padding: 0;
+}
+
+.track-edit-deleted {
+  color: #f85149;
   text-decoration: line-through;
-  background: rgba(239, 68, 68, 0.1);
-  padding: 1px 3px;
-  border-radius: 2px;
+  background: none !important;
+  border: none !important;
+  padding: 0;
 }
 
-.track-edits-added {
-  color: var(--color-green);
-  background: rgba(34, 197, 94, 0.1);
-  padding: 1px 3px;
-  border-radius: 2px;
-}
-
-.track-edits-cluster-stats {
-  display: flex;
-  gap: 12px;
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.track-edits-cluster-actions {
-  display: flex;
-  gap: 8px;
-  padding: 8px 12px;
-  background: var(--background-primary);
-  border-top: 1px solid var(--background-modifier-border);
-}
-
-.track-edits-btn {
-  padding: 4px 12px;
-  border-radius: 4px;
-  border: 1px solid var(--background-modifier-border);
-  background: var(--background-primary);
-  color: var(--text-normal);
-  font-size: 11px;
+/* v2.0 style: Minimal action buttons */
+.track-edit-btn {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 4px 6px;
+  margin: 0 2px;
   cursor: pointer;
+  font-size: 16px;
+  color: var(--text-muted);
   transition: all 0.2s ease;
 }
 
-.track-edits-btn:hover {
-  background: var(--background-modifier-hover);
+.track-edit-btn:hover {
+  background: var(--background-modifier-hover) !important;
+  color: var(--text-normal);
 }
 
-.track-edits-btn-primary {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-  border-color: var(--interactive-accent);
+.track-edit-btn-accept:hover {
+  color: #2ea043 !important;
 }
 
-.track-edits-btn-primary:hover {
-  background: var(--interactive-accent-hover);
-}
-
-.track-edits-btn-accept {
-  background: var(--color-green);
-  color: white;
-  border-color: var(--color-green);
-}
-
-.track-edits-btn-accept:hover {
-  opacity: 0.8;
-}
-
-.track-edits-btn-reject {
-  background: var(--color-red);
-  color: white;
-  border-color: var(--color-red);
-}
-
-.track-edits-btn-reject:hover {
-  opacity: 0.8;
-}
-
-.track-edits-btn-secondary {
-  background: var(--background-secondary);
-}
-
-.track-edits-panel-controls {
-  display: flex;
-  gap: 8px;
-  padding-top: 16px;
-  border-top: 1px solid var(--background-modifier-border);
+.track-edit-btn-reject:hover {
+  color: #f85149 !important;
 }
 
 /* Responsive design */
@@ -632,11 +576,7 @@
     flex-direction: column;
   }
   
-  .track-edits-cluster-actions {
-    flex-direction: column;
-  }
-  
-  .track-edits-panel-controls {
+  .track-edits-bulk-controls {
     flex-direction: column;
   }
 }
