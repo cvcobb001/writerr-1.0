@@ -851,6 +851,7 @@ if (DEBUG_MODE) {
 var addDecorationEffect = import_state.StateEffect.define();
 var removeDecorationEffect = import_state.StateEffect.define();
 var DeletionWidget = class extends import_view.WidgetType {
+  // Make public for StateField access
   constructor(deletedText, editId) {
     super();
     this.deletedText = deletedText;
@@ -1060,6 +1061,7 @@ var TrackEditsPlugin = class extends import_obsidian4.Plugin {
     this.sidePanelView = null;
     this.currentSession = null;
     this.currentEdits = [];
+    this.currentEditorView = null;
     this.debouncedSave = debounce(() => this.saveCurrentSession(), 1e3);
     this.debouncedPanelUpdate = debounce(() => this.updateSidePanel(), 100);
     this.debouncedRibbonClick = debounce(() => this.handleRibbonClick(), 300);
@@ -1344,6 +1346,16 @@ var TrackEditsPlugin = class extends import_obsidian4.Plugin {
       console.log("Track Edits: No active file to track");
       return;
     }
+    this.currentEditorView = this.findCurrentEditorView();
+    if (this.currentEditorView) {
+      DebugMonitor.log("EDITOR_VIEW_STORED", {
+        hasView: !!this.currentEditorView,
+        method: "successful"
+      });
+    } else {
+      DebugMonitor.log("EDITOR_VIEW_STORAGE_FAILED", { reason: "no editor found" });
+      console.warn("Track Edits: No active editor found during startTracking");
+    }
     if (this.currentSession && this.currentSession.id && this.currentSession.startTime) {
       console.log("Track Edits: Preventing duplicate session creation");
       return;
@@ -1378,6 +1390,7 @@ var TrackEditsPlugin = class extends import_obsidian4.Plugin {
         this.currentEdits = [];
         this.currentSession = null;
         this.lastActiveFile = null;
+        this.currentEditorView = null;
         if (this.sidePanelView) {
           this.sidePanelView.updateClusters([]);
         }
@@ -1468,17 +1481,195 @@ var TrackEditsPlugin = class extends import_obsidian4.Plugin {
     this.app.workspace.revealLeaf(rightLeaf);
   }
   acceptEditCluster(clusterId) {
+    const timer = DebugMonitor.startTimer("acceptEditCluster");
     const cluster = this.clusterManager.getCluster(clusterId);
-    if (cluster) {
-      this.currentEdits = this.currentEdits.filter(
-        (edit) => !cluster.edits.find((clusterEdit) => clusterEdit.id === edit.id)
-      );
-      this.editRenderer.clearDecorations();
-      this.updateSidePanel();
+    if (!cluster) {
+      DebugMonitor.log("ACCEPT_CLUSTER_FAILED", { clusterId, reason: "cluster not found" });
+      DebugMonitor.endTimer(timer);
+      return;
     }
+    DebugMonitor.log("ACCEPT_CLUSTER_START", {
+      clusterId,
+      editCount: cluster.edits.length,
+      editIds: cluster.edits.map((e) => e.id)
+    });
+    DebugMonitor.log("ACCEPT_REMOVING_DECORATIONS", {
+      hasStoredView: !!this.currentEditorView,
+      editIds: cluster.edits.map((e) => e.id)
+    });
+    this.removeDecorationsFromView(cluster.edits.map((e) => e.id));
+    this.currentEdits = this.currentEdits.filter(
+      (edit) => !cluster.edits.find((clusterEdit) => clusterEdit.id === edit.id)
+    );
+    this.updateSidePanel();
+    DebugMonitor.log("ACCEPT_CLUSTER_COMPLETE", {
+      clusterId,
+      remainingEdits: this.currentEdits.length
+    });
+    DebugMonitor.endTimer(timer);
   }
   rejectEditCluster(clusterId) {
-    this.acceptEditCluster(clusterId);
+    const timer = DebugMonitor.startTimer("rejectEditCluster");
+    const cluster = this.clusterManager.getCluster(clusterId);
+    if (!cluster) {
+      DebugMonitor.log("REJECT_CLUSTER_FAILED", { clusterId, reason: "cluster not found" });
+      DebugMonitor.endTimer(timer);
+      return;
+    }
+    DebugMonitor.log("REJECT_CLUSTER_START", {
+      clusterId,
+      editCount: cluster.edits.length,
+      editIds: cluster.edits.map((e) => e.id)
+    });
+    let editorView = this.currentEditorView;
+    DebugMonitor.log("REJECT_CHECKING_VIEW", {
+      hasStoredView: !!this.currentEditorView,
+      viewType: this.currentEditorView ? this.currentEditorView.constructor.name : "null"
+    });
+    if (!editorView) {
+      DebugMonitor.log("REJECT_FALLBACK_SEARCH", { reason: "no stored editor view, searching" });
+      editorView = this.findCurrentEditorView();
+    }
+    if (!editorView) {
+      DebugMonitor.log("REJECT_CLUSTER_FAILED", { reason: "no editor view available" });
+      DebugMonitor.endTimer(timer);
+      return;
+    }
+    const sortedEdits = cluster.edits.filter((edit) => edit.type === "insert").sort((a, b) => b.from - a.from);
+    const activeLeaf = this.app.workspace.getActiveViewOfType(import_obsidian4.MarkdownView);
+    if (!activeLeaf || !activeLeaf.editor) {
+      DebugMonitor.log("REJECT_CLUSTER_FAILED", { reason: "no Obsidian editor available" });
+      DebugMonitor.endTimer(timer);
+      return;
+    }
+    const obsidianEditor = activeLeaf.editor;
+    isRejectingEdit = true;
+    try {
+      DebugMonitor.log("REJECT_TEXT_PROCESSING", {
+        sortedEditsCount: sortedEdits.length,
+        editorAvailable: !!obsidianEditor
+      });
+      for (const edit of sortedEdits) {
+        if (edit.type === "insert" && edit.text) {
+          DebugMonitor.log("REJECT_PROCESSING_EDIT", {
+            editId: edit.id,
+            editText: edit.text,
+            editFrom: edit.from,
+            editTextLength: edit.text.length
+          });
+          const startPos = obsidianEditor.offsetToPos(edit.from);
+          const endPos = obsidianEditor.offsetToPos(edit.from + edit.text.length);
+          DebugMonitor.log("REJECT_POSITION_CONVERSION", {
+            editId: edit.id,
+            startPos: { line: startPos.line, ch: startPos.ch },
+            endPos: { line: endPos.line, ch: endPos.ch }
+          });
+          const currentText = obsidianEditor.getRange(startPos, endPos);
+          DebugMonitor.log("REJECT_TEXT_COMPARISON", {
+            editId: edit.id,
+            expectedText: edit.text,
+            actualText: currentText,
+            matches: currentText === edit.text
+          });
+          if (currentText === edit.text) {
+            obsidianEditor.replaceRange("", startPos, endPos);
+            DebugMonitor.log("REJECT_REVERT_INSERT", {
+              editId: edit.id,
+              expectedText: edit.text,
+              actualText: currentText,
+              from: edit.from,
+              removed: true
+            });
+          } else {
+            DebugMonitor.log("REJECT_REVERT_SKIPPED", {
+              editId: edit.id,
+              expectedText: edit.text,
+              actualText: currentText,
+              reason: "text mismatch",
+              startPos,
+              endPos
+            });
+          }
+        }
+      }
+      const decorationRemoveEffects = cluster.edits.map(
+        (edit) => removeDecorationEffect.of(edit.id)
+      );
+      editorView.dispatch({
+        effects: decorationRemoveEffects
+      });
+      DebugMonitor.log("REJECT_DISPATCH_COMPLETE", {
+        processedEdits: sortedEdits.length,
+        effectCount: decorationRemoveEffects.length
+      });
+    } finally {
+      requestAnimationFrame(() => {
+        isRejectingEdit = false;
+      });
+    }
+    this.currentEdits = this.currentEdits.filter(
+      (edit) => !cluster.edits.find((clusterEdit) => clusterEdit.id === edit.id)
+    );
+    this.updateSidePanel();
+    DebugMonitor.log("REJECT_CLUSTER_COMPLETE", {
+      clusterId,
+      remainingEdits: this.currentEdits.length
+    });
+    DebugMonitor.endTimer(timer);
+  }
+  findCurrentEditorView() {
+    const activeLeaf = this.app.workspace.getActiveViewOfType(import_obsidian4.MarkdownView);
+    if (activeLeaf && activeLeaf.editor) {
+      const editorView = activeLeaf.editor.cm;
+      if (editorView) {
+        DebugMonitor.log("FOUND_EDITOR_VIEW", { method: "active_view" });
+        return editorView;
+      }
+    }
+    const leaves = this.app.workspace.getLeavesOfType("markdown");
+    for (const leaf of leaves) {
+      const view = leaf.view;
+      if (view && view.editor) {
+        const editorView = view.editor.cm;
+        if (editorView) {
+          DebugMonitor.log("FOUND_EDITOR_VIEW", { method: "leaf_search", leafId: leaf.id });
+          return editorView;
+        }
+      }
+    }
+    const mostRecentLeaf = this.app.workspace.getMostRecentLeaf();
+    if (mostRecentLeaf && mostRecentLeaf.view instanceof import_obsidian4.MarkdownView && mostRecentLeaf.view.editor) {
+      const editorView = mostRecentLeaf.view.editor.cm;
+      if (editorView) {
+        DebugMonitor.log("FOUND_EDITOR_VIEW", { method: "most_recent_leaf" });
+        return editorView;
+      }
+    }
+    DebugMonitor.log("EDITOR_VIEW_NOT_FOUND", {
+      activeLeafExists: !!activeLeaf,
+      markdownLeavesCount: leaves.length,
+      mostRecentLeafExists: !!mostRecentLeaf
+    });
+    return null;
+  }
+  removeDecorationsFromView(editIds) {
+    let editorView = this.currentEditorView;
+    if (!editorView) {
+      DebugMonitor.log("REMOVE_DECORATIONS_FALLBACK", { reason: "no stored editor view, searching" });
+      editorView = this.findCurrentEditorView();
+    }
+    if (!editorView) {
+      DebugMonitor.log("REMOVE_DECORATIONS_FAILED", { reason: "no editor view available" });
+      return;
+    }
+    const removeEffects = editIds.map((editId) => removeDecorationEffect.of(editId));
+    DebugMonitor.log("REMOVING_DECORATIONS", {
+      editIds,
+      effectCount: removeEffects.length,
+      hasEditorView: !!editorView,
+      usingStored: editorView === this.currentEditorView
+    });
+    editorView.dispatch({ effects: removeEffects });
   }
   handleEditsFromCodeMirror(edits) {
     const timer = DebugMonitor.startTimer("handleEditsFromCodeMirror");

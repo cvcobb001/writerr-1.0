@@ -1,5 +1,5 @@
 import { Plugin, MarkdownView, Editor, EditorChange, TFile, WorkspaceLeaf, ItemView } from 'obsidian';
-import { StateField, StateEffect, Transaction } from '@codemirror/state';
+import { StateField, StateEffect, Transaction, ChangeSpec } from '@codemirror/state';
 import { EditorView, ViewUpdate, ViewPlugin, Decoration, DecorationSet, WidgetType } from '@codemirror/view';
 import { TrackEditsSettingsTab } from './settings';
 import { EditTracker } from './edit-tracker';
@@ -126,8 +126,11 @@ const removeDecorationEffect = StateEffect.define<string>(); // edit ID
 
 // Custom widget for showing deleted text
 class DeletionWidget extends WidgetType {
-  constructor(private deletedText: string, private editId: string) {
+  public editId: string; // Make public for StateField access
+  
+  constructor(private deletedText: string, editId: string) {
     super();
+    this.editId = editId; // Store as public property
   }
   
   toDOM(): HTMLElement {
@@ -370,6 +373,7 @@ export default class TrackEditsPlugin extends Plugin {
   sidePanelView: EditSidePanelView | null = null;
   currentSession: EditSession | null = null;
   currentEdits: EditChange[] = [];
+  private currentEditorView: EditorView | null = null;
   private debouncedSave = debounce(() => this.saveCurrentSession(), 1000);
   private debouncedPanelUpdate = debounce(() => this.updateSidePanel(), 100);
   private debouncedRibbonClick = debounce(() => this.handleRibbonClick(), 300);
@@ -746,6 +750,18 @@ export default class TrackEditsPlugin extends Plugin {
       return;
     }
 
+    // Get and store current editor view for accept/reject operations (robust resolution like v2.0)
+    this.currentEditorView = this.findCurrentEditorView();
+    if (this.currentEditorView) {
+      DebugMonitor.log('EDITOR_VIEW_STORED', { 
+        hasView: !!this.currentEditorView,
+        method: 'successful'
+      });
+    } else {
+      DebugMonitor.log('EDITOR_VIEW_STORAGE_FAILED', { reason: 'no editor found' });
+      console.warn('Track Edits: No active editor found during startTracking');
+    }
+
     // Additional safety check - prevent starting if we're already starting
     if (this.currentSession && this.currentSession.id && this.currentSession.startTime) {
       console.log('Track Edits: Preventing duplicate session creation');
@@ -792,6 +808,9 @@ export default class TrackEditsPlugin extends Plugin {
         this.currentEdits = [];
         this.currentSession = null;
         this.lastActiveFile = null;
+        
+        // Clear stored editor view
+        this.currentEditorView = null;
         
         // Update side panel
         if (this.sidePanelView) {
@@ -905,22 +924,260 @@ export default class TrackEditsPlugin extends Plugin {
   }
   
   acceptEditCluster(clusterId: string) {
-    // Remove edits from current array that belong to this cluster
+    const timer = DebugMonitor.startTimer('acceptEditCluster');
+    
+    // Get the cluster and its edits
     const cluster = this.clusterManager.getCluster(clusterId);
-    if (cluster) {
-      this.currentEdits = this.currentEdits.filter(edit => 
-        !cluster.edits.find(clusterEdit => clusterEdit.id === edit.id)
-      );
-      
-      // Update displays
-      this.editRenderer.clearDecorations();
-      this.updateSidePanel();
+    if (!cluster) {
+      DebugMonitor.log('ACCEPT_CLUSTER_FAILED', { clusterId, reason: 'cluster not found' });
+      DebugMonitor.endTimer(timer);
+      return;
     }
+
+    DebugMonitor.log('ACCEPT_CLUSTER_START', {
+      clusterId,
+      editCount: cluster.edits.length,
+      editIds: cluster.edits.map(e => e.id)
+    });
+
+    // Remove decorations from CodeMirror view for this cluster's edits
+    DebugMonitor.log('ACCEPT_REMOVING_DECORATIONS', {
+      hasStoredView: !!this.currentEditorView,
+      editIds: cluster.edits.map(e => e.id)
+    });
+    this.removeDecorationsFromView(cluster.edits.map(e => e.id));
+
+    // Remove edits from current array that belong to this cluster
+    this.currentEdits = this.currentEdits.filter(edit => 
+      !cluster.edits.find(clusterEdit => clusterEdit.id === edit.id)
+    );
+    
+    // Update side panel display
+    this.updateSidePanel();
+    
+    DebugMonitor.log('ACCEPT_CLUSTER_COMPLETE', {
+      clusterId,
+      remainingEdits: this.currentEdits.length
+    });
+    
+    DebugMonitor.endTimer(timer);
   }
   
   rejectEditCluster(clusterId: string) {
-    // For now, just remove from display (could implement undo in future)
-    this.acceptEditCluster(clusterId);
+    const timer = DebugMonitor.startTimer('rejectEditCluster');
+    
+    // Get the cluster and its edits
+    const cluster = this.clusterManager.getCluster(clusterId);
+    if (!cluster) {
+      DebugMonitor.log('REJECT_CLUSTER_FAILED', { clusterId, reason: 'cluster not found' });
+      DebugMonitor.endTimer(timer);
+      return;
+    }
+
+    DebugMonitor.log('REJECT_CLUSTER_START', {
+      clusterId,
+      editCount: cluster.edits.length,
+      editIds: cluster.edits.map(e => e.id)
+    });
+
+    // Get editor view with fallback like v2.0
+    let editorView = this.currentEditorView;
+    
+    DebugMonitor.log('REJECT_CHECKING_VIEW', {
+      hasStoredView: !!this.currentEditorView,
+      viewType: this.currentEditorView ? this.currentEditorView.constructor.name : 'null'
+    });
+    
+    if (!editorView) {
+      DebugMonitor.log('REJECT_FALLBACK_SEARCH', { reason: 'no stored editor view, searching' });
+      editorView = this.findCurrentEditorView();
+    }
+    
+    if (!editorView) {
+      DebugMonitor.log('REJECT_CLUSTER_FAILED', { reason: 'no editor view available' });
+      DebugMonitor.endTimer(timer);
+      return;
+    }
+
+    // Sort edits by position (reverse order to avoid position shifts)
+    const sortedEdits = cluster.edits
+      .filter(edit => edit.type === 'insert') // Only revert insertions
+      .sort((a, b) => b.from - a.from);
+
+    // Get Obsidian editor for safe text manipulation (v2.0 approach)
+    const activeLeaf = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (!activeLeaf || !activeLeaf.editor) {
+      DebugMonitor.log('REJECT_CLUSTER_FAILED', { reason: 'no Obsidian editor available' });
+      DebugMonitor.endTimer(timer);
+      return;
+    }
+    
+    const obsidianEditor = activeLeaf.editor;
+    
+    // Revert text changes for insertions using Obsidian Editor API (v2.0 approach)
+    // Prevent recursion during our own edit
+    isRejectingEdit = true;
+    
+    try {
+      DebugMonitor.log('REJECT_TEXT_PROCESSING', {
+        sortedEditsCount: sortedEdits.length,
+        editorAvailable: !!obsidianEditor
+      });
+      
+      // Process edits and validate before removal
+      for (const edit of sortedEdits) {
+        if (edit.type === 'insert' && edit.text) {
+          DebugMonitor.log('REJECT_PROCESSING_EDIT', {
+            editId: edit.id,
+            editText: edit.text,
+            editFrom: edit.from,
+            editTextLength: edit.text.length
+          });
+          
+          // Convert offsets to Obsidian positions
+          const startPos = obsidianEditor.offsetToPos(edit.from);
+          const endPos = obsidianEditor.offsetToPos(edit.from + edit.text.length);
+          
+          DebugMonitor.log('REJECT_POSITION_CONVERSION', {
+            editId: edit.id,
+            startPos: { line: startPos.line, ch: startPos.ch },
+            endPos: { line: endPos.line, ch: endPos.ch }
+          });
+          
+          const currentText = obsidianEditor.getRange(startPos, endPos);
+          
+          DebugMonitor.log('REJECT_TEXT_COMPARISON', {
+            editId: edit.id,
+            expectedText: edit.text,
+            actualText: currentText,
+            matches: currentText === edit.text
+          });
+          
+          // Only remove if the text matches what we expect (v2.0 safety check)
+          if (currentText === edit.text) {
+            obsidianEditor.replaceRange('', startPos, endPos);
+            DebugMonitor.log('REJECT_REVERT_INSERT', {
+              editId: edit.id,
+              expectedText: edit.text,
+              actualText: currentText,
+              from: edit.from,
+              removed: true
+            });
+          } else {
+            DebugMonitor.log('REJECT_REVERT_SKIPPED', {
+              editId: edit.id,
+              expectedText: edit.text,
+              actualText: currentText,
+              reason: 'text mismatch',
+              startPos,
+              endPos
+            });
+          }
+        }
+      }
+      
+      // Remove decorations using CodeMirror effects (separate from text changes)
+      const decorationRemoveEffects = cluster.edits.map(edit => 
+        removeDecorationEffect.of(edit.id)
+      );
+      
+      editorView.dispatch({
+        effects: decorationRemoveEffects
+      });
+      
+      DebugMonitor.log('REJECT_DISPATCH_COMPLETE', {
+        processedEdits: sortedEdits.length,
+        effectCount: decorationRemoveEffects.length
+      });
+    } finally {
+      // Re-enable change tracking after a brief delay
+      requestAnimationFrame(() => {
+        isRejectingEdit = false;
+      });
+    }
+
+    // Remove edits from current array that belong to this cluster
+    this.currentEdits = this.currentEdits.filter(edit => 
+      !cluster.edits.find(clusterEdit => clusterEdit.id === edit.id)
+    );
+    
+    // Update side panel display
+    this.updateSidePanel();
+    
+    DebugMonitor.log('REJECT_CLUSTER_COMPLETE', {
+      clusterId,
+      remainingEdits: this.currentEdits.length
+    });
+    
+    DebugMonitor.endTimer(timer);
+  }
+
+  private findCurrentEditorView(): EditorView | null {
+    // Method 1: Try active view first
+    const activeLeaf = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (activeLeaf && activeLeaf.editor) {
+      const editorView = (activeLeaf.editor as any).cm as EditorView;
+      if (editorView) {
+        DebugMonitor.log('FOUND_EDITOR_VIEW', { method: 'active_view' });
+        return editorView;
+      }
+    }
+
+    // Method 2: Search all workspace leaves for MarkdownView (v2.0 fallback pattern)
+    const leaves = this.app.workspace.getLeavesOfType('markdown');
+    for (const leaf of leaves) {
+      const view = leaf.view as MarkdownView;
+      if (view && view.editor) {
+        const editorView = (view.editor as any).cm as EditorView;
+        if (editorView) {
+          DebugMonitor.log('FOUND_EDITOR_VIEW', { method: 'leaf_search', leafId: leaf.id });
+          return editorView;
+        }
+      }
+    }
+
+    // Method 3: Try the most recently active leaf (last resort)
+    const mostRecentLeaf = this.app.workspace.getMostRecentLeaf();
+    if (mostRecentLeaf && mostRecentLeaf.view instanceof MarkdownView && mostRecentLeaf.view.editor) {
+      const editorView = (mostRecentLeaf.view.editor as any).cm as EditorView;
+      if (editorView) {
+        DebugMonitor.log('FOUND_EDITOR_VIEW', { method: 'most_recent_leaf' });
+        return editorView;
+      }
+    }
+
+    DebugMonitor.log('EDITOR_VIEW_NOT_FOUND', { 
+      activeLeafExists: !!activeLeaf,
+      markdownLeavesCount: leaves.length,
+      mostRecentLeafExists: !!mostRecentLeaf
+    });
+    return null;
+  }
+
+  private removeDecorationsFromView(editIds: string[]) {
+    let editorView = this.currentEditorView;
+    
+    // If no stored view, try to find current one (v2.0 fallback pattern)
+    if (!editorView) {
+      DebugMonitor.log('REMOVE_DECORATIONS_FALLBACK', { reason: 'no stored editor view, searching' });
+      editorView = this.findCurrentEditorView();
+    }
+    
+    if (!editorView) {
+      DebugMonitor.log('REMOVE_DECORATIONS_FAILED', { reason: 'no editor view available' });
+      return;
+    }
+
+    const removeEffects = editIds.map(editId => removeDecorationEffect.of(editId));
+    
+    DebugMonitor.log('REMOVING_DECORATIONS', {
+      editIds,
+      effectCount: removeEffects.length,
+      hasEditorView: !!editorView,
+      usingStored: editorView === this.currentEditorView
+    });
+
+    editorView.dispatch({ effects: removeEffects });
   }
 
   handleEditsFromCodeMirror(edits: EditChange[]) {
