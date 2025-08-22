@@ -1535,77 +1535,105 @@ var TrackEditsPlugin = class extends import_obsidian4.Plugin {
       DebugMonitor.endTimer(timer);
       return;
     }
-    const sortedEdits = cluster.edits.filter((edit) => edit.type === "insert").sort((a, b) => b.from - a.from);
-    const activeLeaf = this.app.workspace.getActiveViewOfType(import_obsidian4.MarkdownView);
-    if (!activeLeaf || !activeLeaf.editor) {
-      DebugMonitor.log("REJECT_CLUSTER_FAILED", { reason: "no Obsidian editor available" });
-      DebugMonitor.endTimer(timer);
-      return;
-    }
-    const obsidianEditor = activeLeaf.editor;
+    DebugMonitor.log("REJECT_ALL_EDITS_IN_CLUSTER", {
+      allEdits: cluster.edits.map((e) => {
+        var _a;
+        return { id: e.id, type: e.type, from: e.from, to: e.to, textLength: ((_a = e.text) == null ? void 0 : _a.length) || 0 };
+      })
+    });
+    const insertionsToRemove = cluster.edits.filter((edit) => edit.type === "insert").sort((a, b) => b.from - a.from);
+    const deletionsToRestore = cluster.edits.filter((edit) => edit.type === "delete").sort((a, b) => a.from - b.from);
+    DebugMonitor.log("REJECT_FILTERED_EDITS", {
+      insertionsToRemove: insertionsToRemove.map((e) => {
+        var _a;
+        return { id: e.id, type: e.type, from: e.from, to: e.to, textLength: ((_a = e.text) == null ? void 0 : _a.length) || 0 };
+      }),
+      deletionsToRestore: deletionsToRestore.map((e) => {
+        var _a;
+        return { id: e.id, type: e.type, from: e.from, to: e.to, removedTextLength: ((_a = e.removedText) == null ? void 0 : _a.length) || 0 };
+      })
+    });
+    const doc = editorView.state.doc;
     isRejectingEdit = true;
     try {
       DebugMonitor.log("REJECT_TEXT_PROCESSING", {
-        sortedEditsCount: sortedEdits.length,
-        editorAvailable: !!obsidianEditor
+        insertionsToRemove: insertionsToRemove.length,
+        deletionsToRestore: deletionsToRestore.length,
+        docLength: doc.length
       });
-      for (const edit of sortedEdits) {
-        if (edit.type === "insert" && edit.text) {
-          DebugMonitor.log("REJECT_PROCESSING_EDIT", {
+      const changes = [];
+      for (const edit of insertionsToRemove) {
+        if (edit.text) {
+          DebugMonitor.log("REJECT_PROCESSING_INSERTION", {
             editId: edit.id,
             editText: edit.text,
             editFrom: edit.from,
             editTextLength: edit.text.length
           });
-          const startPos = obsidianEditor.offsetToPos(edit.from);
-          const endPos = obsidianEditor.offsetToPos(edit.from + edit.text.length);
-          DebugMonitor.log("REJECT_POSITION_CONVERSION", {
-            editId: edit.id,
-            startPos: { line: startPos.line, ch: startPos.ch },
-            endPos: { line: endPos.line, ch: endPos.ch }
-          });
-          const currentText = obsidianEditor.getRange(startPos, endPos);
+          const currentText = doc.sliceString(edit.from, edit.from + edit.text.length);
           DebugMonitor.log("REJECT_TEXT_COMPARISON", {
             editId: edit.id,
+            position: { from: edit.from, to: edit.from + edit.text.length },
             expectedText: edit.text,
-            actualText: currentText,
+            currentText,
             matches: currentText === edit.text
           });
           if (currentText === edit.text) {
-            obsidianEditor.replaceRange("", startPos, endPos);
+            changes.push({ from: edit.from, to: edit.from + edit.text.length, insert: "" });
             DebugMonitor.log("REJECT_REVERT_INSERT", {
               editId: edit.id,
-              expectedText: edit.text,
-              actualText: currentText,
-              from: edit.from,
-              removed: true
+              removedText: edit.text
             });
           } else {
             DebugMonitor.log("REJECT_REVERT_SKIPPED", {
               editId: edit.id,
-              expectedText: edit.text,
-              actualText: currentText,
               reason: "text mismatch",
-              startPos,
-              endPos
+              expected: edit.text,
+              found: currentText
             });
           }
+        }
+      }
+      for (const edit of deletionsToRestore) {
+        if (edit.removedText) {
+          DebugMonitor.log("REJECT_PROCESSING_DELETION", {
+            editId: edit.id,
+            removedText: edit.removedText,
+            editFrom: edit.from,
+            removedTextLength: edit.removedText.length
+          });
+          changes.push({ from: edit.from, to: edit.from, insert: edit.removedText });
+          DebugMonitor.log("REJECT_RESTORE_DELETION", {
+            editId: edit.id,
+            restoredText: edit.removedText,
+            position: edit.from
+          });
         }
       }
       const decorationRemoveEffects = cluster.edits.map(
         (edit) => removeDecorationEffect.of(edit.id)
       );
-      editorView.dispatch({
-        effects: decorationRemoveEffects
-      });
+      if (changes.length > 0) {
+        const transaction = editorView.state.update({
+          changes,
+          effects: decorationRemoveEffects
+        });
+        editorView.dispatch(transaction);
+        DebugMonitor.log("REJECT_CHANGES_APPLIED", {
+          changeCount: changes.length,
+          effectCount: decorationRemoveEffects.length
+        });
+      } else {
+        editorView.dispatch({
+          effects: decorationRemoveEffects
+        });
+      }
       DebugMonitor.log("REJECT_DISPATCH_COMPLETE", {
-        processedEdits: sortedEdits.length,
+        processedEdits: insertionsToRemove.length + deletionsToRestore.length,
         effectCount: decorationRemoveEffects.length
       });
     } finally {
-      requestAnimationFrame(() => {
-        isRejectingEdit = false;
-      });
+      isRejectingEdit = false;
     }
     this.currentEdits = this.currentEdits.filter(
       (edit) => !cluster.edits.find((clusterEdit) => clusterEdit.id === edit.id)

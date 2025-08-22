@@ -999,101 +999,128 @@ export default class TrackEditsPlugin extends Plugin {
       return;
     }
 
-    // Sort edits by position (reverse order to avoid position shifts)
-    const sortedEdits = cluster.edits
-      .filter(edit => edit.type === 'insert') // Only revert insertions
-      .sort((a, b) => b.from - a.from);
+    // Debug: Log all edits in cluster before filtering
+    DebugMonitor.log('REJECT_ALL_EDITS_IN_CLUSTER', {
+      allEdits: cluster.edits.map(e => ({ id: e.id, type: e.type, from: e.from, to: e.to, textLength: e.text?.length || 0 }))
+    });
 
-    // Get Obsidian editor for safe text manipulation (v2.0 approach)
-    const activeLeaf = this.app.workspace.getActiveViewOfType(MarkdownView);
-    if (!activeLeaf || !activeLeaf.editor) {
-      DebugMonitor.log('REJECT_CLUSTER_FAILED', { reason: 'no Obsidian editor available' });
-      DebugMonitor.endTimer(timer);
-      return;
-    }
+    // Process both insertions (remove) and deletions (restore)
+    const insertionsToRemove = cluster.edits
+      .filter(edit => edit.type === 'insert')
+      .sort((a, b) => b.from - a.from); // Reverse order to avoid position shifts
+
+    const deletionsToRestore = cluster.edits
+      .filter(edit => edit.type === 'delete')
+      .sort((a, b) => a.from - b.from); // Forward order for deletions
+
+    DebugMonitor.log('REJECT_FILTERED_EDITS', {
+      insertionsToRemove: insertionsToRemove.map(e => ({ id: e.id, type: e.type, from: e.from, to: e.to, textLength: e.text?.length || 0 })),
+      deletionsToRestore: deletionsToRestore.map(e => ({ id: e.id, type: e.type, from: e.from, to: e.to, removedTextLength: e.removedText?.length || 0 }))
+    });
+
+    // Use CodeMirror directly like accept does, not Obsidian Editor API
+    const doc = editorView.state.doc;
     
-    const obsidianEditor = activeLeaf.editor;
-    
-    // Revert text changes for insertions using Obsidian Editor API (v2.0 approach)
+    // Revert text changes for insertions using CodeMirror API
     // Prevent recursion during our own edit
     isRejectingEdit = true;
     
     try {
       DebugMonitor.log('REJECT_TEXT_PROCESSING', {
-        sortedEditsCount: sortedEdits.length,
-        editorAvailable: !!obsidianEditor
+        insertionsToRemove: insertionsToRemove.length,
+        deletionsToRestore: deletionsToRestore.length,
+        docLength: doc.length
       });
       
-      // Process edits and validate before removal
-      for (const edit of sortedEdits) {
-        if (edit.type === 'insert' && edit.text) {
-          DebugMonitor.log('REJECT_PROCESSING_EDIT', {
+      // Build transaction to remove insertions and restore deletions
+      const changes = [];
+      
+      // First, remove all insertions (in reverse order)
+      for (const edit of insertionsToRemove) {
+        if (edit.text) {
+          DebugMonitor.log('REJECT_PROCESSING_INSERTION', {
             editId: edit.id,
             editText: edit.text,
             editFrom: edit.from,
             editTextLength: edit.text.length
           });
           
-          // Convert offsets to Obsidian positions
-          const startPos = obsidianEditor.offsetToPos(edit.from);
-          const endPos = obsidianEditor.offsetToPos(edit.from + edit.text.length);
-          
-          DebugMonitor.log('REJECT_POSITION_CONVERSION', {
-            editId: edit.id,
-            startPos: { line: startPos.line, ch: startPos.ch },
-            endPos: { line: endPos.line, ch: endPos.ch }
-          });
-          
-          const currentText = obsidianEditor.getRange(startPos, endPos);
+          // Validate text exists at expected position
+          const currentText = doc.sliceString(edit.from, edit.from + edit.text.length);
           
           DebugMonitor.log('REJECT_TEXT_COMPARISON', {
             editId: edit.id,
+            position: { from: edit.from, to: edit.from + edit.text.length },
             expectedText: edit.text,
-            actualText: currentText,
+            currentText,
             matches: currentText === edit.text
           });
           
-          // Only remove if the text matches what we expect (v2.0 safety check)
           if (currentText === edit.text) {
-            obsidianEditor.replaceRange('', startPos, endPos);
+            changes.push({ from: edit.from, to: edit.from + edit.text.length, insert: '' });
             DebugMonitor.log('REJECT_REVERT_INSERT', {
               editId: edit.id,
-              expectedText: edit.text,
-              actualText: currentText,
-              from: edit.from,
-              removed: true
+              removedText: edit.text
             });
           } else {
             DebugMonitor.log('REJECT_REVERT_SKIPPED', {
               editId: edit.id,
-              expectedText: edit.text,
-              actualText: currentText,
               reason: 'text mismatch',
-              startPos,
-              endPos
+              expected: edit.text,
+              found: currentText
             });
           }
         }
       }
+
+      // Then, restore all deletions (in forward order)
+      for (const edit of deletionsToRestore) {
+        if (edit.removedText) {
+          DebugMonitor.log('REJECT_PROCESSING_DELETION', {
+            editId: edit.id,
+            removedText: edit.removedText,
+            editFrom: edit.from,
+            removedTextLength: edit.removedText.length
+          });
+          
+          // Insert the deleted text back at its original position
+          changes.push({ from: edit.from, to: edit.from, insert: edit.removedText });
+          DebugMonitor.log('REJECT_RESTORE_DELETION', {
+            editId: edit.id,
+            restoredText: edit.removedText,
+            position: edit.from
+          });
+        }
+      }
       
-      // Remove decorations using CodeMirror effects (separate from text changes)
+      // Apply all text changes and decoration removals in single transaction
       const decorationRemoveEffects = cluster.edits.map(edit => 
         removeDecorationEffect.of(edit.id)
       );
       
-      editorView.dispatch({
-        effects: decorationRemoveEffects
-      });
+      if (changes.length > 0) {
+        const transaction = editorView.state.update({ 
+          changes,
+          effects: decorationRemoveEffects
+        });
+        editorView.dispatch(transaction);
+        DebugMonitor.log('REJECT_CHANGES_APPLIED', {
+          changeCount: changes.length,
+          effectCount: decorationRemoveEffects.length
+        });
+      } else {
+        // Only dispatch decoration effects if no text changes
+        editorView.dispatch({
+          effects: decorationRemoveEffects
+        });
+      }
       
       DebugMonitor.log('REJECT_DISPATCH_COMPLETE', {
-        processedEdits: sortedEdits.length,
+        processedEdits: insertionsToRemove.length + deletionsToRestore.length,
         effectCount: decorationRemoveEffects.length
       });
     } finally {
-      // Re-enable change tracking after a brief delay
-      requestAnimationFrame(() => {
-        isRejectingEdit = false;
-      });
+      isRejectingEdit = false;
     }
 
     // Remove edits from current array that belong to this cluster
