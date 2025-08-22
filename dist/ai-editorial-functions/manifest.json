@@ -1,0 +1,12 @@
+{
+  "id": "ai-editorial-functions",
+  "name": "AI Editorial Functions",
+  "version": "1.0.0",
+  "minAppVersion": "1.0.0",
+  "description": "Specialized AI writing tools and editorial functions for academic, business, fiction, and technical writing within Obsidian.",
+  "author": "Writerr AI Editorial Platform",
+  "authorUrl": "https://github.com/writerr-ai",
+  "fundingUrl": "",
+  "isDesktopOnly": false,
+  "js": "main.js"
+}

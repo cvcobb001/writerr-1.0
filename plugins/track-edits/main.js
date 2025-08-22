@@ -1,0 +1,1154 @@
+"use strict";
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+
+// plugins/track-edits/src/main.ts
+var main_exports = {};
+__export(main_exports, {
+  default: () => TrackEditsPlugin
+});
+module.exports = __toCommonJS(main_exports);
+var import_obsidian4 = require("obsidian");
+
+// plugins/track-edits/src/settings.ts
+var import_obsidian = require("obsidian");
+var TrackEditsSettingsTab = class extends import_obsidian.PluginSettingTab {
+  constructor(app, plugin) {
+    super(app, plugin);
+    this.plugin = plugin;
+  }
+  display() {
+    const { containerEl } = this;
+    containerEl.empty();
+    containerEl.createEl("h2", { text: "Track Edits Settings" });
+    new import_obsidian.Setting(containerEl).setName("Enable tracking").setDesc("Automatically track edits when documents are modified").addToggle((toggle) => toggle.setValue(this.plugin.settings.enableTracking).onChange(async (value) => {
+      this.plugin.settings.enableTracking = value;
+      await this.plugin.saveSettings();
+      if (value) {
+        this.plugin.startTracking();
+      } else {
+        this.plugin.stopTracking();
+      }
+    }));
+    new import_obsidian.Setting(containerEl).setName("Show line numbers").setDesc("Display line numbers in the editor").addToggle((toggle) => toggle.setValue(this.plugin.settings.showLineNumbers).onChange(async (value) => {
+      this.plugin.settings.showLineNumbers = value;
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian.Setting(containerEl).setName("Highlight changes").setDesc("Visually highlight recent changes in the editor").addToggle((toggle) => toggle.setValue(this.plugin.settings.highlightChanges).onChange(async (value) => {
+      this.plugin.settings.highlightChanges = value;
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian.Setting(containerEl).setName("Data retention").setDesc("Number of days to keep edit history (0 = keep forever)").addSlider((slider) => slider.setLimits(0, 365, 1).setValue(this.plugin.settings.retentionDays).setDynamicTooltip().onChange(async (value) => {
+      this.plugin.settings.retentionDays = value;
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian.Setting(containerEl).setName("Color scheme").setDesc("Choose the color scheme for change highlighting").addDropdown((dropdown) => dropdown.addOption("default", "Default").addOption("colorblind", "Colorblind friendly").addOption("dark", "Dark theme optimized").setValue(this.plugin.settings.colorScheme).onChange(async (value) => {
+      this.plugin.settings.colorScheme = value;
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian.Setting(containerEl).setName("Auto-save sessions").setDesc("Automatically save edit sessions as they occur").addToggle((toggle) => toggle.setValue(this.plugin.settings.autoSave).onChange(async (value) => {
+      this.plugin.settings.autoSave = value;
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian.Setting(containerEl).setName("Export format").setDesc("Default format for exporting edit sessions").addDropdown((dropdown) => dropdown.addOption("json", "JSON").addOption("csv", "CSV").addOption("markdown", "Markdown").setValue(this.plugin.settings.exportFormat).onChange(async (value) => {
+      this.plugin.settings.exportFormat = value;
+      await this.plugin.saveSettings();
+    }));
+    containerEl.createEl("h3", { text: "Actions" });
+    new import_obsidian.Setting(containerEl).setName("Export current session").setDesc("Export the current editing session").addButton((button) => button.setButtonText("Export").setCta().onClick(() => {
+      if (this.plugin.currentSession) {
+        this.plugin.exportSession(this.plugin.currentSession.id);
+      }
+    }));
+    new import_obsidian.Setting(containerEl).setName("Clear all history").setDesc("Delete all stored edit history (cannot be undone)").addButton((button) => button.setButtonText("Clear").setWarning().onClick(() => {
+      this.plugin.clearEditHistory();
+    }));
+  }
+};
+
+// shared/utils/index.ts
+function generateId() {
+  return Math.random().toString(36).substr(2, 9);
+}
+function debounce(func, wait) {
+  let timeout;
+  return (...args) => {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => func(...args), wait);
+  };
+}
+function getWordCount(text) {
+  return text.trim().split(/\s+/).filter((word) => word.length > 0).length;
+}
+function getCharacterCount(text) {
+  return text.length;
+}
+
+// plugins/track-edits/src/edit-tracker.ts
+var EditTracker = class {
+  constructor(plugin) {
+    this.sessions = /* @__PURE__ */ new Map();
+    this.activeSessions = /* @__PURE__ */ new Map();
+    this.plugin = plugin;
+    this.loadSessions();
+  }
+  async loadSessions() {
+    try {
+      const data = await this.plugin.loadData();
+      if (data && data.sessions) {
+        for (const session of data.sessions) {
+          this.sessions.set(session.id, session);
+        }
+      }
+    } catch (error) {
+      console.error("Failed to load edit sessions:", error);
+    }
+  }
+  async saveSessions() {
+    try {
+      const sessionsArray = Array.from(this.sessions.values());
+      await this.plugin.saveData({ sessions: sessionsArray });
+    } catch (error) {
+      console.error("Failed to save edit sessions:", error);
+    }
+  }
+  startSession(session, file) {
+    this.sessions.set(session.id, session);
+    this.activeSessions.set(session.id, file);
+  }
+  endSession(sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (session) {
+      session.endTime = Date.now();
+      this.activeSessions.delete(sessionId);
+      this.saveSessions();
+    }
+  }
+  recordChanges(sessionId, changes) {
+    const session = this.sessions.get(sessionId);
+    if (!session)
+      return;
+    session.changes.push(...changes);
+    const file = this.activeSessions.get(sessionId);
+    if (file) {
+      this.updateSessionCounts(session, file);
+    }
+  }
+  async updateSessionCounts(session, file) {
+    try {
+      const content = await this.plugin.app.vault.read(file);
+      session.wordCount = getWordCount(content);
+      session.characterCount = getCharacterCount(content);
+    } catch (error) {
+      console.error("Failed to update session counts:", error);
+    }
+  }
+  getSession(sessionId) {
+    return this.sessions.get(sessionId);
+  }
+  getSessionHistory() {
+    return Array.from(this.sessions.values()).sort((a, b) => b.startTime - a.startTime);
+  }
+  async saveSession(session) {
+    this.sessions.set(session.id, session);
+    await this.saveSessions();
+  }
+  clearHistory() {
+    this.sessions.clear();
+    this.activeSessions.clear();
+    this.saveSessions();
+  }
+  formatSessionForExport(session, format) {
+    switch (format) {
+      case "json":
+        return JSON.stringify(session, null, 2);
+      case "csv":
+        let csv = "Timestamp,Type,From,To,Text,RemovedText\n";
+        for (const change of session.changes) {
+          const row = [
+            new Date(change.timestamp).toISOString(),
+            change.type,
+            change.from,
+            change.to,
+            `"${(change.text || "").replace(/"/g, '""')}"`,
+            `"${(change.removedText || "").replace(/"/g, '""')}"`
+          ].join(",");
+          csv += row + "\n";
+        }
+        return csv;
+      case "markdown":
+        const startDate = new Date(session.startTime).toLocaleString();
+        const endDate = session.endTime ? new Date(session.endTime).toLocaleString() : "In progress";
+        const duration = session.endTime ? Math.round((session.endTime - session.startTime) / 1e3 / 60) + " minutes" : "In progress";
+        let markdown = `# Edit Session Report
+
+`;
+        markdown += `- **Start:** ${startDate}
+`;
+        markdown += `- **End:** ${endDate}
+`;
+        markdown += `- **Duration:** ${duration}
+`;
+        markdown += `- **Changes:** ${session.changes.length}
+`;
+        markdown += `- **Words:** ${session.wordCount}
+`;
+        markdown += `- **Characters:** ${session.characterCount}
+
+`;
+        if (session.changes.length > 0) {
+          markdown += `## Changes
+
+`;
+          for (const change of session.changes) {
+            const time = new Date(change.timestamp).toLocaleTimeString();
+            markdown += `- **${time}** - ${change.type} at position ${change.from}-${change.to}
+`;
+            if (change.text) {
+              markdown += `  - Added: "${change.text}"
+`;
+            }
+            if (change.removedText) {
+              markdown += `  - Removed: "${change.removedText}"
+`;
+            }
+          }
+        }
+        return markdown;
+      default:
+        return JSON.stringify(session, null, 2);
+    }
+  }
+  // Clean up old sessions based on retention policy
+  cleanupOldSessions() {
+    if (this.plugin.settings.retentionDays === 0)
+      return;
+    const cutoffTime = Date.now() - this.plugin.settings.retentionDays * 24 * 60 * 60 * 1e3;
+    const toDelete = [];
+    for (const [sessionId, session] of this.sessions.entries()) {
+      if (session.startTime < cutoffTime) {
+        toDelete.push(sessionId);
+      }
+    }
+    for (const sessionId of toDelete) {
+      this.sessions.delete(sessionId);
+    }
+    if (toDelete.length > 0) {
+      this.saveSessions();
+    }
+  }
+};
+
+// plugins/track-edits/src/edit-renderer.ts
+var import_obsidian2 = require("obsidian");
+var EditRenderer = class {
+  constructor(plugin) {
+    this.trackingIndicator = null;
+    this.decorationContainer = null;
+    this.activeDecorations = [];
+    this.plugin = plugin;
+  }
+  showTrackingIndicator() {
+    if (this.trackingIndicator)
+      return;
+    this.trackingIndicator = document.createElement("div");
+    this.trackingIndicator.className = "track-edits-indicator";
+    this.trackingIndicator.innerHTML = "\u{1F534} Tracking";
+    this.trackingIndicator.style.cssText = `
+      position: fixed;
+      top: 10px;
+      right: 60px;
+      background: var(--background-modifier-error);
+      color: var(--text-on-accent);
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      z-index: 1000;
+      opacity: 0.8;
+    `;
+    document.body.appendChild(this.trackingIndicator);
+    console.log("Track Edits v2.0: Showing tracking indicator");
+  }
+  hideTrackingIndicator() {
+    try {
+      if (this.trackingIndicator && this.trackingIndicator.parentNode) {
+        this.trackingIndicator.remove();
+        this.trackingIndicator = null;
+        console.log("Track Edits v2.0: Hiding tracking indicator");
+      }
+      this.clearDecorations();
+    } catch (error) {
+      console.error("Track Edits: Error hiding tracking indicator:", error);
+      this.trackingIndicator = null;
+    }
+  }
+  // Safe decoration system using DOM overlay approach
+  showChangeDecorations(changes) {
+    this.clearDecorations();
+    const activeLeaf = this.plugin.app.workspace.getActiveViewOfType(import_obsidian2.MarkdownView);
+    if (!activeLeaf || !activeLeaf.editor) {
+      console.log("Track Edits v2.0: No active editor found for decorations");
+      return;
+    }
+    console.log("Track Edits v2.0: Showing decorations for", changes.length, "changes");
+    this.createDOMOverlayDecorations(activeLeaf, changes);
+    changes.forEach((change, index) => {
+      this.createTemporaryHighlight(change, index);
+    });
+  }
+  createDOMOverlayDecorations(markdownView, changes) {
+    try {
+      const editorContainer = markdownView.contentEl.querySelector(".cm-editor");
+      if (!editorContainer) {
+        console.log("Track Edits v2.0: Editor container not found");
+        return;
+      }
+      if (!this.decorationContainer) {
+        this.decorationContainer = document.createElement("div");
+        this.decorationContainer.className = "track-edits-decoration-overlay";
+        this.decorationContainer.style.cssText = `
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          pointer-events: none;
+          z-index: 5;
+        `;
+        editorContainer.appendChild(this.decorationContainer);
+      }
+      const now = Date.now();
+      const recentChanges = changes.filter((change) => now - change.timestamp < 5e3);
+      recentChanges.forEach((change) => {
+        this.createSafeDecoration(change);
+      });
+      console.log("Track Edits v2.0: Created", recentChanges.length, "DOM overlay decorations");
+    } catch (error) {
+      console.error("Track Edits v2.0: Error creating DOM overlay decorations:", error);
+    }
+  }
+  createSafeDecoration(change) {
+    if (!this.decorationContainer)
+      return;
+    const position = this.getEditorPosition(change);
+    if (!position || position.left < 0 || position.top < 0) {
+      console.log("Track Edits v2.0: Invalid position for decoration:", position);
+      return;
+    }
+    const decoration = document.createElement("div");
+    decoration.className = this.getDecorationClass(change);
+    decoration.style.cssText = `
+      position: absolute;
+      left: ${position.left}px;
+      top: ${position.top}px;
+      width: ${Math.max(position.width, 20)}px;
+      height: ${position.height}px;
+      pointer-events: none;
+      z-index: 10;
+      border-radius: 3px;
+      animation: track-edits-highlight-fade 3s ease-out forwards;
+    `;
+    decoration.title = `${change.type} at ${new Date(change.timestamp).toLocaleTimeString()}`;
+    this.decorationContainer.appendChild(decoration);
+    this.activeDecorations.push(decoration);
+    setTimeout(() => {
+      if (decoration.parentNode) {
+        decoration.remove();
+        this.activeDecorations = this.activeDecorations.filter((d) => d !== decoration);
+      }
+    }, 3e3);
+  }
+  getEditorPosition(change) {
+    var _a;
+    try {
+      const activeLeaf = this.plugin.app.workspace.getActiveViewOfType(import_obsidian2.MarkdownView);
+      if (!activeLeaf || !activeLeaf.editor)
+        return null;
+      const editor = activeLeaf.editor;
+      const pos = editor.offsetToPos(change.from);
+      const coords = editor.coordsAtPos(pos, false);
+      if (!coords) {
+        console.log("Track Edits v2.0: No coordinates returned for position", pos);
+        return null;
+      }
+      const editorContainer = activeLeaf.contentEl.querySelector(".cm-editor");
+      if (!editorContainer)
+        return null;
+      const editorRect = editorContainer.getBoundingClientRect();
+      const result = {
+        left: Math.max(0, coords.left - editorRect.left),
+        top: Math.max(0, coords.top - editorRect.top),
+        width: Math.max((((_a = change.text) == null ? void 0 : _a.length) || 1) * 8, 20),
+        // Approximate character width
+        height: Math.max(coords.bottom - coords.top, 16)
+        // Minimum height
+      };
+      console.log("Track Edits v2.0: Calculated position:", result, "for change at", change.from);
+      return result;
+    } catch (error) {
+      console.error("Track Edits v2.0: Error getting editor position:", error);
+      return null;
+    }
+  }
+  getDecorationClass(change) {
+    let className = "track-edits-decoration";
+    switch (change.type) {
+      case "insert":
+        className += " track-edits-decoration-insert";
+        break;
+      case "delete":
+        className += " track-edits-decoration-delete";
+        break;
+      case "replace":
+        className += " track-edits-decoration-replace";
+        break;
+    }
+    className += ` track-edits-decoration-${this.plugin.settings.colorScheme}`;
+    return className;
+  }
+  createTemporaryHighlight(change, index) {
+    const highlight = document.createElement("div");
+    highlight.className = "track-edits-temp-highlight";
+    highlight.style.cssText = `
+      position: fixed;
+      top: ${60 + index * 25}px;
+      right: 60px;
+      background: var(--background-modifier-success);
+      color: var(--text-on-accent);
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 10px;
+      z-index: 999;
+      opacity: 0.9;
+      animation: fadeInOut 3s ease-in-out;
+    `;
+    highlight.textContent = `${change.type}: "${change.text || ""}"`;
+    document.body.appendChild(highlight);
+    this.activeDecorations.push(highlight);
+    setTimeout(() => {
+      if (highlight.parentNode) {
+        highlight.remove();
+        this.activeDecorations = this.activeDecorations.filter((el) => el !== highlight);
+      }
+    }, 3e3);
+  }
+  clearDecorations() {
+    this.activeDecorations.forEach((decoration) => {
+      if (decoration.parentNode) {
+        decoration.remove();
+      }
+    });
+    this.activeDecorations = [];
+    if (this.decorationContainer && this.decorationContainer.parentNode) {
+      this.decorationContainer.remove();
+      this.decorationContainer = null;
+    }
+  }
+  // Method for backward compatibility - no longer returns CodeMirror extension
+  getCodeMirrorExtension() {
+    return null;
+  }
+};
+
+// plugins/track-edits/src/side-panel-view.ts
+var import_obsidian3 = require("obsidian");
+var SIDE_PANEL_VIEW_TYPE = "track-edits-side-panel";
+var EditSidePanelView = class extends import_obsidian3.ItemView {
+  constructor(leaf, plugin) {
+    super(leaf);
+    this.clusters = [];
+    this.plugin = plugin;
+  }
+  getViewType() {
+    return SIDE_PANEL_VIEW_TYPE;
+  }
+  getDisplayText() {
+    return "Track Edits";
+  }
+  getIcon() {
+    return "edit";
+  }
+  async onOpen() {
+    const container = this.containerEl.children[1];
+    container.empty();
+    container.addClass("track-edits-side-panel");
+    this.renderView();
+  }
+  async onClose() {
+  }
+  updateClusters(clusters) {
+    this.clusters = clusters;
+    this.renderView();
+  }
+  renderView() {
+    const container = this.containerEl.children[1];
+    container.empty();
+    const header = container.createEl("div", { cls: "track-edits-panel-header" });
+    header.createEl("h3", { text: "Track Edits", cls: "track-edits-panel-title" });
+    const status = header.createEl("div", { cls: "track-edits-panel-status" });
+    if (this.plugin.currentSession) {
+      status.createEl("span", {
+        text: "\u{1F534} Recording",
+        cls: "track-edits-status-recording"
+      });
+    } else {
+      status.createEl("span", {
+        text: "\u26AA Stopped",
+        cls: "track-edits-status-stopped"
+      });
+    }
+    const clustersContainer = container.createEl("div", { cls: "track-edits-clusters" });
+    if (this.clusters.length === 0) {
+      clustersContainer.createEl("div", {
+        text: "No recent edits to review",
+        cls: "track-edits-empty-state"
+      });
+      return;
+    }
+    const clustersHeader = clustersContainer.createEl("div", { cls: "track-edits-clusters-header" });
+    clustersHeader.createEl("h4", { text: "Recent Edit Clusters" });
+    clustersHeader.createEl("span", {
+      text: `${this.clusters.length} cluster${this.clusters.length !== 1 ? "s" : ""}`,
+      cls: "track-edits-cluster-count"
+    });
+    this.clusters.forEach((cluster, index) => {
+      this.renderCluster(clustersContainer, cluster, index);
+    });
+    const controls = container.createEl("div", { cls: "track-edits-panel-controls" });
+    const acceptAllBtn = controls.createEl("button", {
+      text: "Accept All",
+      cls: "track-edits-btn track-edits-btn-primary"
+    });
+    acceptAllBtn.onclick = () => this.acceptAllClusters();
+    const clearAllBtn = controls.createEl("button", {
+      text: "Clear All",
+      cls: "track-edits-btn track-edits-btn-secondary"
+    });
+    clearAllBtn.onclick = () => this.clearAllClusters();
+  }
+  renderCluster(container, cluster, index) {
+    const clusterEl = container.createEl("div", { cls: "track-edits-cluster" });
+    const header = clusterEl.createEl("div", { cls: "track-edits-cluster-header" });
+    const title = header.createEl("div", { cls: "track-edits-cluster-title" });
+    title.createEl("span", {
+      text: this.getClusterTitle(cluster),
+      cls: "track-edits-cluster-name"
+    });
+    title.createEl("span", {
+      text: this.getClusterTime(cluster),
+      cls: "track-edits-cluster-time"
+    });
+    const content = clusterEl.createEl("div", { cls: "track-edits-cluster-content" });
+    const preview = content.createEl("div", { cls: "track-edits-cluster-preview" });
+    const previewText = this.getClusterPreview(cluster);
+    if (cluster.type === "word_replacement") {
+      preview.innerHTML = `<span class="track-edits-deleted">${previewText.before}</span> \u2192 <span class="track-edits-added">${previewText.after}</span>`;
+    } else {
+      preview.innerHTML = `<span class="track-edits-added">${previewText.text}</span>`;
+    }
+    const stats = content.createEl("div", { cls: "track-edits-cluster-stats" });
+    stats.createEl("span", { text: `${cluster.edits.length} edit${cluster.edits.length !== 1 ? "s" : ""}` });
+    stats.createEl("span", { text: `${cluster.wordCount} word${cluster.wordCount !== 1 ? "s" : ""}` });
+    const actions = clusterEl.createEl("div", { cls: "track-edits-cluster-actions" });
+    const acceptBtn = actions.createEl("button", {
+      text: "\u2713 Accept",
+      cls: "track-edits-btn track-edits-btn-accept"
+    });
+    acceptBtn.onclick = () => this.acceptCluster(cluster.id);
+    const rejectBtn = actions.createEl("button", {
+      text: "\u2717 Reject",
+      cls: "track-edits-btn track-edits-btn-reject"
+    });
+    rejectBtn.onclick = () => this.rejectCluster(cluster.id);
+  }
+  getClusterTitle(cluster) {
+    switch (cluster.type) {
+      case "word_replacement":
+        return "Word Replacement";
+      case "consecutive_typing":
+        return "Consecutive Typing";
+      case "deletion":
+        return "Text Deletion";
+      default:
+        return "Text Edit";
+    }
+  }
+  getClusterTime(cluster) {
+    const now = Date.now();
+    const timeDiff = now - cluster.startTime;
+    if (timeDiff < 1e3) {
+      return "Just now";
+    } else if (timeDiff < 6e4) {
+      return `${Math.floor(timeDiff / 1e3)}s ago`;
+    } else {
+      return `${Math.floor(timeDiff / 6e4)}m ago`;
+    }
+  }
+  getClusterPreview(cluster) {
+    var _a, _b;
+    if (cluster.type === "word_replacement") {
+      return {
+        before: ((_a = cluster.metadata) == null ? void 0 : _a.originalWord) || "",
+        after: ((_b = cluster.metadata) == null ? void 0 : _b.newWord) || ""
+      };
+    } else {
+      const text = cluster.edits.map((edit) => edit.text || "").join("").slice(0, 50);
+      return { text: text + (text.length === 50 ? "..." : "") };
+    }
+  }
+  acceptCluster(clusterId) {
+    this.plugin.acceptEditCluster(clusterId);
+  }
+  rejectCluster(clusterId) {
+    this.plugin.rejectEditCluster(clusterId);
+  }
+  acceptAllClusters() {
+    this.clusters.forEach((cluster) => {
+      this.plugin.acceptEditCluster(cluster.id);
+    });
+  }
+  clearAllClusters() {
+    this.clusters.forEach((cluster) => {
+      this.plugin.rejectEditCluster(cluster.id);
+    });
+  }
+};
+
+// plugins/track-edits/src/edit-cluster-manager.ts
+var EditClusterManager = class {
+  constructor(plugin) {
+    this.activeClusters = /* @__PURE__ */ new Map();
+    this.plugin = plugin;
+  }
+  clusterEdits(edits) {
+    if (!this.plugin.settings.enableClustering || edits.length === 0) {
+      return [];
+    }
+    this.activeClusters.clear();
+    const sortedEdits = [...edits].sort((a, b) => a.timestamp - b.timestamp);
+    const clusters = [];
+    let currentCluster = [];
+    let lastTimestamp = 0;
+    for (const edit of sortedEdits) {
+      const timeDiff = edit.timestamp - lastTimestamp;
+      if (timeDiff > this.plugin.settings.clusterTimeWindow || currentCluster.length === 0) {
+        if (currentCluster.length > 0) {
+          const cluster = this.createCluster(currentCluster);
+          if (cluster) {
+            clusters.push(cluster);
+            this.activeClusters.set(cluster.id, cluster);
+          }
+        }
+        currentCluster = [edit];
+      } else {
+        if (this.areEditsInSameWord(currentCluster[currentCluster.length - 1], edit)) {
+          currentCluster.push(edit);
+        } else {
+          const cluster = this.createCluster(currentCluster);
+          if (cluster) {
+            clusters.push(cluster);
+            this.activeClusters.set(cluster.id, cluster);
+          }
+          currentCluster = [edit];
+        }
+      }
+      lastTimestamp = edit.timestamp;
+    }
+    if (currentCluster.length > 0) {
+      const cluster = this.createCluster(currentCluster);
+      if (cluster) {
+        clusters.push(cluster);
+        this.activeClusters.set(cluster.id, cluster);
+      }
+    }
+    return clusters;
+  }
+  createCluster(edits) {
+    if (edits.length === 0)
+      return null;
+    const startTime = Math.min(...edits.map((e) => e.timestamp));
+    const endTime = Math.max(...edits.map((e) => e.timestamp));
+    const clusterType = this.determineClusterType(edits);
+    const cluster = {
+      id: generateId(),
+      type: clusterType,
+      edits,
+      startTime,
+      endTime,
+      wordCount: this.calculateWordCount(edits),
+      characterCount: this.calculateCharacterCount(edits),
+      metadata: this.generateClusterMetadata(edits, clusterType)
+    };
+    return cluster;
+  }
+  areEditsInSameWord(edit1, edit2) {
+    const positionDiff = Math.abs(edit1.to - edit2.from);
+    if (positionDiff <= 5) {
+      return true;
+    }
+    if (edit1.type === "insert" && edit2.type === "insert") {
+      return edit1.to === edit2.from || edit1.to === edit2.from - 1;
+    }
+    return false;
+  }
+  determineClusterType(edits) {
+    const insertCount = edits.filter((e) => e.type === "insert").length;
+    const deleteCount = edits.filter((e) => e.type === "delete").length;
+    const replaceCount = edits.filter((e) => e.type === "replace").length;
+    if (deleteCount > 0 && insertCount > 0) {
+      return "word_replacement";
+    }
+    if (deleteCount > 0 && insertCount === 0) {
+      return "deletion";
+    }
+    if (insertCount > 0 && deleteCount === 0) {
+      return "consecutive_typing";
+    }
+    return "mixed";
+  }
+  calculateWordCount(edits) {
+    const text = edits.filter((e) => e.text).map((e) => e.text).join("");
+    return text.trim().split(/\s+/).filter((word) => word.length > 0).length;
+  }
+  calculateCharacterCount(edits) {
+    return edits.filter((e) => e.text).reduce((count, edit) => {
+      var _a;
+      return count + (((_a = edit.text) == null ? void 0 : _a.length) || 0);
+    }, 0);
+  }
+  generateClusterMetadata(edits, type) {
+    const metadata = {};
+    if (type === "word_replacement") {
+      const deletedEdits = edits.filter((e) => e.type === "delete");
+      const insertedEdits = edits.filter((e) => e.type === "insert");
+      if (deletedEdits.length > 0) {
+        metadata.originalWord = deletedEdits.map((e) => e.removedText || "").join("");
+      }
+      if (insertedEdits.length > 0) {
+        metadata.newWord = insertedEdits.map((e) => e.text || "").join("");
+      }
+    }
+    if (edits.length > 0) {
+      metadata.position = edits[0].from;
+    }
+    return metadata;
+  }
+  getCluster(clusterId) {
+    return this.activeClusters.get(clusterId);
+  }
+  removeCluster(clusterId) {
+    return this.activeClusters.delete(clusterId);
+  }
+  getAllClusters() {
+    return Array.from(this.activeClusters.values());
+  }
+  clearClusters() {
+    this.activeClusters.clear();
+  }
+};
+
+// plugins/track-edits/src/main.ts
+var DEFAULT_SETTINGS = {
+  enableTracking: true,
+  showLineNumbers: true,
+  highlightChanges: true,
+  retentionDays: 30,
+  colorScheme: "default",
+  autoSave: true,
+  exportFormat: "json",
+  enableClustering: true,
+  clusterTimeWindow: 2e3,
+  showSidePanelOnStart: true
+};
+var TrackEditsPlugin = class extends import_obsidian4.Plugin {
+  constructor() {
+    super(...arguments);
+    this.sidePanelView = null;
+    this.currentSession = null;
+    this.currentEdits = [];
+    this.debouncedSave = debounce(() => this.saveCurrentSession(), 1e3);
+    this.debouncedPanelUpdate = debounce(() => this.updateSidePanel(), 100);
+    this.debouncedRibbonClick = debounce(() => this.handleRibbonClick(), 300);
+    this.isProcessingChange = false;
+    this.isRestartingSession = false;
+    this.lastActiveFile = null;
+  }
+  async onload() {
+    await this.loadSettings();
+    this.editTracker = new EditTracker(this);
+    this.editRenderer = new EditRenderer(this);
+    this.clusterManager = new EditClusterManager(this);
+    this.initializeGlobalAPI();
+    this.registerSafeEventHandlers();
+    this.registerView("track-edits-side-panel", (leaf) => new EditSidePanelView(leaf, this));
+    this.addCommands();
+    this.addSettingTab(new TrackEditsSettingsTab(this.app, this));
+    this.addRibbonIcon();
+    if (this.settings.enableTracking) {
+      this.startTracking();
+    }
+    console.log("Track Edits v2.0 plugin loaded");
+  }
+  onunload() {
+    try {
+      this.stopTracking();
+      this.cleanupGlobalAPI();
+      console.log("Track Edits plugin unloaded");
+    } catch (error) {
+      console.error("Track Edits: Error during plugin unload:", error);
+    }
+  }
+  async loadSettings() {
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+  }
+  async saveSettings() {
+    await this.saveData(this.settings);
+  }
+  initializeGlobalAPI() {
+    if (!window.WriterrlAPI) {
+      window.WriterrlAPI = {};
+    }
+    window.WriterrlAPI.trackEdits = {
+      getCurrentSession: () => this.currentSession,
+      getSessionHistory: () => this.editTracker.getSessionHistory(),
+      startTracking: () => this.startTracking(),
+      stopTracking: () => this.stopTracking(),
+      exportSession: (sessionId) => this.exportSession(sessionId)
+    };
+  }
+  cleanupGlobalAPI() {
+    if (window.WriterrlAPI && window.WriterrlAPI.trackEdits) {
+      delete window.WriterrlAPI.trackEdits;
+    }
+  }
+  registerSafeEventHandlers() {
+    console.log("[Track Edits DEBUG] Registering event handlers");
+    this.registerEvent(
+      this.app.workspace.on("editor-change", (editor, info) => {
+        console.log("[Track Edits DEBUG] editor-change event fired");
+        console.log("[Track Edits DEBUG] isProcessingChange:", this.isProcessingChange);
+        console.log("[Track Edits DEBUG] enableTracking:", this.settings.enableTracking);
+        console.log("[Track Edits DEBUG] currentSession exists:", !!this.currentSession);
+        if (this.isProcessingChange) {
+          console.log("[Track Edits DEBUG] Skipping due to isProcessingChange");
+          return;
+        }
+        if (!this.settings.enableTracking || !this.currentSession) {
+          console.log("[Track Edits DEBUG] Skipping due to enableTracking or no session");
+          return;
+        }
+        this.isProcessingChange = true;
+        requestAnimationFrame(() => {
+          try {
+            this.handleEditorChange(editor, info);
+          } catch (error) {
+            console.error("Track Edits: Error in editor change handler:", error);
+          } finally {
+            this.isProcessingChange = false;
+          }
+        });
+      })
+    );
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", () => {
+        if (this.isRestartingSession)
+          return;
+        if (!this.settings || !this.settings.enableTracking)
+          return;
+        const activeFile = this.app.workspace.getActiveFile();
+        const currentFilePath = (activeFile == null ? void 0 : activeFile.path) || null;
+        if (this.currentSession && this.lastActiveFile !== currentFilePath && this.lastActiveFile !== null && // Don't restart on initial load
+        currentFilePath !== null) {
+          console.log("Track Edits: File changed from", this.lastActiveFile, "to", currentFilePath);
+          this.lastActiveFile = currentFilePath;
+          this.restartSession();
+        } else if (!this.currentSession && activeFile && currentFilePath !== this.lastActiveFile && !this.isRestartingSession) {
+          console.log("Track Edits: Starting new session for file:", currentFilePath);
+          this.lastActiveFile = currentFilePath;
+          this.startTracking();
+        }
+      })
+    );
+  }
+  handleEditorChange(editor, info) {
+    console.log("[Track Edits DEBUG] handleEditorChange called");
+    console.log("[Track Edits DEBUG] Editor:", editor);
+    console.log("[Track Edits DEBUG] Info:", info);
+    console.log("[Track Edits DEBUG] Current session:", this.currentSession);
+    console.log("[Track Edits DEBUG] Settings enableTracking:", this.settings.enableTracking);
+    const changes = this.extractChangesFromEditor(editor);
+    console.log("[Track Edits DEBUG] Extracted changes:", changes);
+    if (changes.length === 0) {
+      console.log("[Track Edits DEBUG] No changes detected, returning early");
+      return;
+    }
+    console.log("Track Edits v2.0: Recording", changes.length, "changes");
+    this.currentEdits.push(...changes);
+    console.log("[Track Edits DEBUG] Current edits array length:", this.currentEdits.length);
+    console.log("[Track Edits DEBUG] About to call showChangeDecorations");
+    this.editRenderer.showChangeDecorations(changes);
+    console.log("[Track Edits DEBUG] Called showChangeDecorations");
+    this.editTracker.recordChanges(this.currentSession.id, changes);
+    this.debouncedPanelUpdate();
+    this.debouncedSave();
+  }
+  updateSidePanel() {
+    if (this.sidePanelView) {
+      const clusters = this.clusterManager.clusterEdits(this.currentEdits);
+      this.sidePanelView.updateClusters(clusters);
+    }
+  }
+  extractChangesFromEditor(editor) {
+    console.log("[Track Edits DEBUG] extractChangesFromEditor called");
+    const doc = editor.getDoc();
+    const cursor = editor.getCursor();
+    console.log("[Track Edits DEBUG] Cursor position:", cursor);
+    const line = doc.getLine(cursor.line);
+    console.log("[Track Edits DEBUG] Current line:", line);
+    console.log("[Track Edits DEBUG] Line length:", line == null ? void 0 : line.length);
+    if (line && line.length > 0) {
+      console.log("Track Edits v2.0: Detected editor change at line", cursor.line, "position", cursor.ch);
+      const docPosition = editor.posToOffset(cursor);
+      const fromPos = Math.max(0, docPosition - 1);
+      const toPos = docPosition;
+      const characterAtCursor = line.charAt(cursor.ch - 1) || "";
+      console.log("[Track Edits DEBUG] Character at cursor:", characterAtCursor);
+      console.log("[Track Edits DEBUG] Doc position:", docPosition);
+      console.log("[Track Edits DEBUG] From pos:", fromPos, "To pos:", toPos);
+      const change = {
+        id: generateId(),
+        timestamp: Date.now(),
+        type: "insert",
+        from: fromPos,
+        to: toPos,
+        text: characterAtCursor,
+        author: "user"
+      };
+      console.log("[Track Edits DEBUG] Created change object:", change);
+      return [change];
+    }
+    console.log("[Track Edits DEBUG] No valid line found, returning empty array");
+    return [];
+  }
+  addRibbonIcon() {
+    super.addRibbonIcon("edit", "Track Edits", (evt) => {
+      this.debouncedRibbonClick();
+    });
+  }
+  handleRibbonClick() {
+    if (this.isRestartingSession) {
+      console.log("Track Edits: Ribbon click ignored during session restart");
+      return;
+    }
+    this.isRestartingSession = true;
+    try {
+      if (this.currentSession) {
+        this.stopTracking();
+        console.log("Track Edits: Stopped tracking via ribbon icon");
+      } else {
+        this.startTracking();
+        console.log("Track Edits: Started tracking via ribbon icon");
+      }
+    } catch (error) {
+      console.error("Track Edits: Error in ribbon icon handler:", error);
+    } finally {
+      setTimeout(() => {
+        this.isRestartingSession = false;
+      }, 100);
+    }
+  }
+  addCommands() {
+    this.addCommand({
+      id: "start-tracking",
+      name: "Start tracking edits",
+      callback: () => this.startTracking()
+    });
+    this.addCommand({
+      id: "stop-tracking",
+      name: "Stop tracking edits",
+      callback: () => this.stopTracking()
+    });
+    this.addCommand({
+      id: "toggle-side-panel",
+      name: "Toggle Track Edits side panel",
+      callback: () => this.toggleSidePanel()
+    });
+    this.addCommand({
+      id: "export-current-session",
+      name: "Export current session",
+      callback: () => this.exportCurrentSession()
+    });
+    this.addCommand({
+      id: "view-edit-history",
+      name: "View edit history",
+      callback: () => this.viewEditHistory()
+    });
+    this.addCommand({
+      id: "clear-edit-history",
+      name: "Clear edit history",
+      callback: () => this.clearEditHistory()
+    });
+  }
+  startTracking() {
+    if (this.currentSession && !this.isRestartingSession) {
+      console.log("Track Edits: Session already active, stopping first");
+      this.stopTracking();
+    }
+    const activeFile = this.app.workspace.getActiveFile();
+    if (!activeFile) {
+      console.log("Track Edits: No active file to track");
+      return;
+    }
+    if (this.currentSession && this.currentSession.id && this.currentSession.startTime) {
+      console.log("Track Edits: Preventing duplicate session creation");
+      return;
+    }
+    this.lastActiveFile = activeFile.path;
+    this.currentSession = {
+      id: generateId(),
+      startTime: Date.now(),
+      changes: [],
+      wordCount: 0,
+      characterCount: 0
+    };
+    this.currentEdits = [];
+    this.editTracker.startSession(this.currentSession, activeFile);
+    this.editRenderer.showTrackingIndicator();
+    if (this.settings.showSidePanelOnStart) {
+      this.showSidePanel();
+    }
+    console.log("Track Edits v2.0: Started tracking session", this.currentSession.id);
+  }
+  stopTracking() {
+    try {
+      if (this.currentSession) {
+        this.currentSession.endTime = Date.now();
+        this.saveCurrentSession();
+        if (this.editTracker) {
+          this.editTracker.endSession(this.currentSession.id);
+        }
+        if (this.editRenderer) {
+          this.editRenderer.hideTrackingIndicator();
+        }
+        this.currentEdits = [];
+        this.currentSession = null;
+        this.lastActiveFile = null;
+        if (this.sidePanelView) {
+          this.sidePanelView.updateClusters([]);
+        }
+      }
+    } catch (error) {
+      console.error("Track Edits: Error stopping tracking:", error);
+      this.currentSession = null;
+      this.currentEdits = [];
+      this.lastActiveFile = null;
+    }
+  }
+  restartSession() {
+    try {
+      if (this.isRestartingSession) {
+        console.log("Track Edits: Restart already in progress, ignoring");
+        return;
+      }
+      if (!this.currentSession) {
+        console.log("Track Edits: No session to restart");
+        return;
+      }
+      this.isRestartingSession = true;
+      console.log("Track Edits v2.0: Restarting session due to file change");
+      const previousSessionId = this.currentSession.id;
+      this.stopTracking();
+      setTimeout(() => {
+        try {
+          if (this.settings.enableTracking && !this.currentSession) {
+            console.log("Track Edits: Starting new session after restart from", previousSessionId);
+            this.startTracking();
+          }
+        } catch (startError) {
+          console.error("Track Edits: Error starting new session after restart:", startError);
+        } finally {
+          this.isRestartingSession = false;
+        }
+      }, 150);
+    } catch (error) {
+      console.error("Track Edits: Error restarting session:", error);
+      this.isRestartingSession = false;
+    }
+  }
+  async saveCurrentSession() {
+    if (this.currentSession && this.settings.autoSave) {
+      await this.editTracker.saveSession(this.currentSession);
+    }
+  }
+  exportCurrentSession() {
+    if (!this.currentSession)
+      return;
+    this.exportSession(this.currentSession.id);
+  }
+  exportSession(sessionId) {
+    const session = this.editTracker.getSession(sessionId);
+    if (!session)
+      return "";
+    const exportData = this.editTracker.formatSessionForExport(session, this.settings.exportFormat);
+    const blob = new Blob([exportData], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `edit-session-${sessionId}.${this.settings.exportFormat}`;
+    a.click();
+    URL.revokeObjectURL(url);
+    return exportData;
+  }
+  viewEditHistory() {
+    console.log("Opening edit history view...");
+  }
+  clearEditHistory() {
+    this.editTracker.clearHistory();
+  }
+  async toggleSidePanel() {
+    const existingLeaf = this.app.workspace.getLeavesOfType("track-edits-side-panel")[0];
+    if (existingLeaf) {
+      existingLeaf.detach();
+    } else {
+      await this.showSidePanel();
+    }
+  }
+  async showSidePanel() {
+    const rightLeaf = this.app.workspace.getRightLeaf(false);
+    await rightLeaf.setViewState({
+      type: "track-edits-side-panel",
+      active: true
+    });
+    this.sidePanelView = rightLeaf.view;
+    this.app.workspace.revealLeaf(rightLeaf);
+  }
+  acceptEditCluster(clusterId) {
+    const cluster = this.clusterManager.getCluster(clusterId);
+    if (cluster) {
+      this.currentEdits = this.currentEdits.filter(
+        (edit) => !cluster.edits.find((clusterEdit) => clusterEdit.id === edit.id)
+      );
+      this.editRenderer.clearDecorations();
+      this.updateSidePanel();
+    }
+  }
+  rejectEditCluster(clusterId) {
+    this.acceptEditCluster(clusterId);
+  }
+};
+//# sourceMappingURL=main.js.map

@@ -1,0 +1,54 @@
+{
+  "name": "writerr-obsidian-plugins",
+  "version": "1.0.0",
+  "description": "Writerr AI Editorial Platform - Obsidian Plugin Suite",
+  "main": "index.js",
+  "scripts": {
+    "build": "node scripts/build.js",
+    "build:prod": "node scripts/build.js --prod",
+    "dev": "node scripts/dev.js",
+    "package": "node scripts/package.js",
+    "build:all": "npm run build:track-edits && npm run build:writerr-chat && npm run build:ai-editorial-functions",
+    "build:track-edits": "esbuild plugins/track-edits/src/main.ts --bundle --external:obsidian --outfile=plugins/track-edits/main.js --format=cjs --target=es2018 --sourcemap",
+    "build:writerr-chat": "esbuild plugins/writerr-chat/src/main.ts --bundle --external:obsidian --outfile=plugins/writerr-chat/main.js --format=cjs --target=es2018 --sourcemap",
+    "build:ai-editorial-functions": "esbuild plugins/ai-editorial-functions/src/main.ts --bundle --external:obsidian --outfile=plugins/ai-editorial-functions/main.js --format=cjs --target=es2018 --sourcemap",
+    "build:prod:all": "npm run build:prod:track-edits && npm run build:prod:writerr-chat && npm run build:prod:ai-editorial-functions",
+    "build:prod:track-edits": "esbuild plugins/track-edits/src/main.ts --bundle --external:obsidian --outfile=plugins/track-edits/main.js --format=cjs --target=es2018 --minify",
+    "build:prod:writerr-chat": "esbuild plugins/writerr-chat/src/main.ts --bundle --external:obsidian --outfile=plugins/writerr-chat/main.js --format=cjs --target=es2018 --minify",
+    "build:prod:ai-editorial-functions": "esbuild plugins/ai-editorial-functions/src/main.ts --bundle --external:obsidian --outfile=plugins/ai-editorial-functions/main.js --format=cjs --target=es2018 --minify",
+    "clean": "rm -f plugins/*/main.js plugins/*/main.js.map && rm -rf dist/",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint plugins/*/src/**/*.ts",
+    "test": "npm run build:all",
+    "validate": "node scripts/validate-plugins.js",
+    "health": "node scripts/health-check.js",
+    "dev-test": "node scripts/test-dev.js",
+    "pre-deploy": "node scripts/pre-deploy.js",
+    "test:full": "npm run validate && npm run health && npm run test"
+  },
+  "keywords": [
+    "obsidian",
+    "plugin",
+    "ai",
+    "writing",
+    "editorial",
+    "typescript"
+  ],
+  "author": "Writerr AI Editorial Platform",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "archiver": "^5.3.2",
+    "builtin-modules": "^3.3.0",
+    "concurrently": "^8.2.2",
+    "esbuild": "^0.19.8",
+    "eslint": "^8.55.0",
+    "obsidian": "^1.4.16",
+    "typescript": "^5.3.0"
+  },
+  "engines": {
+    "node": ">=16"
+  }
+}

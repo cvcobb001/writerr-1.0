@@ -1,0 +1,12 @@
+{
+  "id": "writerr-chat",
+  "name": "Writerr Chat",
+  "version": "1.0.0",
+  "minAppVersion": "1.0.0",
+  "description": "AI-powered writing assistant with contextual chat interface for brainstorming, editing, and content development within Obsidian.",
+  "author": "Writerr AI Editorial Platform",
+  "authorUrl": "https://github.com/writerr-ai",
+  "fundingUrl": "",
+  "isDesktopOnly": false,
+  "js": "main.js"
+}

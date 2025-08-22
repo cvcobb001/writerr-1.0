@@ -1,0 +1,185 @@
+{
+  "description": "Backup configuration for Writerr Plugin Suite test environment",
+  "created": "2024-01-15T10:30:00Z",
+  "version": "1.0.0",
+  "environment": "test-vault",
+  
+  "plugins": {
+    "track-edits": {
+      "enabled": true,
+      "settings": {
+        "enableTracking": true,
+        "showLineNumbers": true,
+        "highlightChanges": true,
+        "retentionDays": 30,
+        "colorScheme": "default",
+        "autoSave": true,
+        "exportFormat": "json",
+        "visualIndicators": {
+          "insertColor": "#2ea043",
+          "deleteColor": "#f85149", 
+          "modifyColor": "#db9a04",
+          "opacity": 0.2,
+          "borderWidth": "3px"
+        },
+        "performance": {
+          "debounceMs": 100,
+          "maxHistoryItems": 10000,
+          "cleanupIntervalMs": 300000
+        },
+        "privacy": {
+          "anonymizeUserData": false,
+          "encryptHistory": false,
+          "shareAnalytics": false
+        }
+      }
+    },
+    
+    "writerr-chat": {
+      "enabled": true,
+      "settings": {
+        "defaultProvider": "openai",
+        "providers": {
+          "openai": {
+            "apiKey": "",
+            "model": "gpt-4",
+            "maxTokens": 1000,
+            "temperature": 0.7,
+            "baseUrl": "https://api.openai.com/v1"
+          },
+          "anthropic": {
+            "apiKey": "",
+            "model": "claude-3-sonnet",
+            "maxTokens": 1000,
+            "temperature": 0.7,
+            "baseUrl": "https://api.anthropic.com/v1"
+          },
+          "local": {
+            "enabled": false,
+            "endpoint": "http://localhost:11434",
+            "model": "llama2"
+          }
+        },
+        "ui": {
+          "panelPosition": "right",
+          "autoOpen": false,
+          "showTypingIndicator": true,
+          "showTokenCount": true
+        },
+        "context": {
+          "includeSelection": true,
+          "includeDocumentTitle": true,
+          "includeEditHistory": false,
+          "maxContextLength": 2000
+        },
+        "history": {
+          "enabled": true,
+          "maxMessages": 1000,
+          "exportFormat": "json",
+          "clearOnRestart": false
+        }
+      }
+    },
+    
+    "ai-editorial-functions": {
+      "enabled": true,
+      "settings": {
+        "activeMode": "general",
+        "modes": {
+          "academic": {
+            "enabled": true,
+            "functions": [
+              "research-structure",
+              "citation-checker", 
+              "argument-analyzer"
+            ]
+          },
+          "business": {
+            "enabled": true,
+            "functions": [
+              "executive-summary",
+              "professional-tone",
+              "clarity-enhancer"
+            ]
+          },
+          "fiction": {
+            "enabled": true,
+            "functions": [
+              "character-development",
+              "dialogue-editor",
+              "narrative-flow"
+            ]
+          },
+          "technical": {
+            "enabled": true,
+            "functions": [
+              "api-documentation",
+              "code-explanation",
+              "procedure-clarity"
+            ]
+          }
+        },
+        "processing": {
+          "batchSize": 5,
+          "timeoutMs": 10000,
+          "retryAttempts": 3,
+          "showProgress": true
+        },
+        "customFunctions": {
+          "enabled": true,
+          "directory": "custom-functions/",
+          "autoReload": true
+        },
+        "ui": {
+          "showFunctionPalette": true,
+          "palettePosition": "command",
+          "showConfidence": true,
+          "showProcessingTime": true
+        }
+      }
+    }
+  },
+  
+  "obsidian": {
+    "theme": "default",
+    "cssSnippets": [
+      "writerr-enhancements.css"
+    ],
+    "vaultSettings": {
+      "spellcheck": true,
+      "foldHeading": true,
+      "foldIndent": true,
+      "showFrontmatter": true
+    }
+  },
+  
+  "testing": {
+    "environment": {
+      "isolated": true,
+      "sampleDataLoaded": true,
+      "performanceMonitoring": true,
+      "errorTracking": true
+    },
+    "scenarios": [
+      "basic-functionality",
+      "cross-plugin-integration", 
+      "performance-stress-test",
+      "edge-case-handling",
+      "error-recovery"
+    ],
+    "metrics": {
+      "trackResponseTimes": true,
+      "trackMemoryUsage": true,
+      "trackErrorRates": true,
+      "generateReports": true
+    }
+  },
+  
+  "backup": {
+    "frequency": "daily",
+    "retention": 7,
+    "includeEditHistory": true,
+    "includeChatHistory": true,
+    "compression": true
+  }
+}
