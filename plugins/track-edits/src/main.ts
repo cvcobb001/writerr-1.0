@@ -6,6 +6,7 @@ import { EditTracker } from './edit-tracker';
 import { EditRenderer } from './edit-renderer';
 import { EditSidePanelView } from './side-panel-view';
 import { EditClusterManager } from './edit-cluster-manager';
+import { ToggleStateManager } from './ui/ToggleStateManager';
 import { EditSession, EditChange, WriterrlGlobalAPI } from '../../../shared/types';
 import { generateId, debounce } from '../../../shared/utils';
 
@@ -133,6 +134,7 @@ if (DEBUG_MODE) {
 // State effects for decoration management
 const addDecorationEffect = StateEffect.define<{edit: EditChange, decoration: Decoration}>();
 const removeDecorationEffect = StateEffect.define<string>(); // edit ID
+const clearAllDecorationsEffect = StateEffect.define<boolean>();
 
 // Custom widget for showing deleted text
 class DeletionWidget extends WidgetType {
@@ -263,6 +265,10 @@ const editDecorationField = StateField.define<DecorationSet>({
             return true;
           }
         });
+      } else if (effect.is(clearAllDecorationsEffect)) {
+        DebugMonitor.log('CLEAR_ALL_DECORATIONS_EFFECT', { previousSize: decorations.size });
+        removedDecorations = decorations.size;
+        decorations = Decoration.none;
       }
     }
     
@@ -297,7 +303,15 @@ const changeDetectionPlugin = ViewPlugin.fromClass(class {
       focusChanged: update.focusChanged
     });
     
-    if (update.docChanged && !isRejectingEdit && currentPluginInstance) {
+    // Check if we should process changes (plugin exists, tracking enabled, not rejecting)
+    const shouldProcessChanges = update.docChanged && 
+                                 !isRejectingEdit && 
+                                 currentPluginInstance &&
+                                 currentPluginInstance.settings.enableTracking &&
+                                 (!currentPluginInstance.toggleStateManager || 
+                                  currentPluginInstance.toggleStateManager.isTrackingEnabled);
+    
+    if (shouldProcessChanges) {
       const extractTimer = DebugMonitor.startTimer('extractEditsFromUpdate');
       const edits = this.extractEditsFromUpdate(update);
       DebugMonitor.endTimer(extractTimer);
@@ -381,6 +395,7 @@ export default class TrackEditsPlugin extends Plugin {
   editRenderer: EditRenderer;
   clusterManager: EditClusterManager;
   sidePanelView: EditSidePanelView | null = null;
+  toggleStateManager: ToggleStateManager | null = null;
   currentSession: EditSession | null = null;
   currentEdits: EditChange[] = [];
   private currentEditorView: EditorView | null = null;
@@ -401,6 +416,15 @@ export default class TrackEditsPlugin extends Plugin {
     this.editTracker = new EditTracker(this);
     this.editRenderer = new EditRenderer(this);
     this.clusterManager = new EditClusterManager(this);
+
+    // Initialize toggle state manager
+    this.toggleStateManager = new ToggleStateManager(this.app, (enabled) => {
+      if (enabled) {
+        this.startTracking();
+      } else {
+        this.stopTracking();
+      }
+    });
 
     // Initialize global API
     this.initializeGlobalAPI();
@@ -435,6 +459,13 @@ export default class TrackEditsPlugin extends Plugin {
     try {
       this.stopTracking();
       this.cleanupGlobalAPI();
+      
+      // Clean up toggle state manager
+      if (this.toggleStateManager) {
+        this.toggleStateManager.destroy();
+        this.toggleStateManager = null;
+      }
+      
       console.log('Track Edits plugin unloaded');
     } catch (error) {
       console.error('Track Edits: Error during plugin unload:', error);
@@ -595,9 +626,20 @@ export default class TrackEditsPlugin extends Plugin {
 
   private addRibbonIcon() {
     this.ribbonIconEl = super.addRibbonIcon('edit', 'Track Edits', (evt: MouseEvent) => {
-      // Use debounced handler to prevent rapid clicks
-      this.debouncedRibbonClick();
+      // Use ToggleStateManager to handle ribbon clicks
+      if (this.toggleStateManager) {
+        this.toggleStateManager.setTrackingEnabled(!this.toggleStateManager.isTrackingEnabled);
+      } else {
+        // Fallback to direct toggle
+        this.debouncedRibbonClick();
+      }
     });
+    
+    // Connect ribbon icon to ToggleStateManager
+    if (this.ribbonIconEl && this.toggleStateManager) {
+      this.toggleStateManager.setRibbonIcon(this.ribbonIconEl);
+    }
+    
     this.updateRibbonIcon();
   }
 
@@ -831,6 +873,10 @@ export default class TrackEditsPlugin extends Plugin {
         if (this.editRenderer) {
           this.editRenderer.hideTrackingIndicator();
         }
+        
+        // Clear all decorations from the document
+        this.clearAllDecorations();
+        
         // Clear current edits
         this.currentEdits = [];
         this.currentSession = null;
@@ -1335,6 +1381,34 @@ export default class TrackEditsPlugin extends Plugin {
     editorView.dispatch({ effects: removeEffects });
   }
 
+  private clearAllDecorations() {
+    let editorView = this.currentEditorView;
+    
+    // If no stored view, try to find current one
+    if (!editorView) {
+      editorView = this.findCurrentEditorView();
+    }
+    
+    if (!editorView) {
+      DebugMonitor.log('CLEAR_ALL_DECORATIONS_FAILED', { reason: 'no editor view available' });
+      return;
+    }
+
+    DebugMonitor.log('CLEAR_ALL_DECORATIONS_START', {
+      currentEditsCount: this.currentEdits.length,
+      hasEditorView: !!editorView
+    });
+
+    // Use our custom clear all decorations effect
+    editorView.dispatch({
+      effects: clearAllDecorationsEffect.of(true)
+    });
+
+    DebugMonitor.log('CLEAR_ALL_DECORATIONS_COMPLETE', {
+      method: 'clearAllDecorationsEffect'
+    });
+  }
+
   handleEditsFromCodeMirror(edits: EditChange[]) {
     const timer = DebugMonitor.startTimer('handleEditsFromCodeMirror');
     
@@ -1346,9 +1420,14 @@ export default class TrackEditsPlugin extends Plugin {
       edits: edits.map(e => ({ id: e.id, type: e.type, from: e.from, to: e.to }))
     });
     
-    if (!this.settings.enableTracking || !this.currentSession) {
+    // Check both settings and toggle state manager
+    const isTrackingEnabled = this.settings.enableTracking && 
+                              (!this.toggleStateManager || this.toggleStateManager.isTrackingEnabled);
+    
+    if (!isTrackingEnabled || !this.currentSession) {
       DebugMonitor.log('HANDLE_EDITS_SKIPPED', {
-        reason: !this.settings.enableTracking ? 'tracking disabled' : 'no session'
+        reason: !this.settings.enableTracking ? 'settings disabled' : 
+                !this.toggleStateManager?.isTrackingEnabled ? 'toggle disabled' : 'no session'
       });
       DebugMonitor.endTimer(timer);
       return;

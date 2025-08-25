@@ -802,6 +802,169 @@ var EditClusterManager = class {
   }
 };
 
+// plugins/track-edits/src/ui/ToggleStateManager.ts
+var ToggleStateManager = class {
+  constructor(app, onStateChange) {
+    this.ribbonIcon = null;
+    this.statusIndicator = null;
+    this.sidePanel = null;
+    this.sidePanelOriginalContent = "";
+    this.app = app;
+    this.onStateChange = onStateChange;
+    this.trackingEnabled = this.loadSavedState();
+    this.createAriaAnnouncer();
+  }
+  get isTrackingEnabled() {
+    return this.trackingEnabled;
+  }
+  /**
+   * Set tracking enabled/disabled state
+   */
+  setTrackingEnabled(enabled) {
+    if (this.trackingEnabled === enabled) {
+      return;
+    }
+    this.trackingEnabled = enabled;
+    this.saveState();
+    this.updateRibbonIcon();
+    this.updateStatusIndicator();
+    this.updateSidePanel();
+    this.announceStateChange(enabled);
+    this.onStateChange(enabled);
+  }
+  /**
+   * Set the ribbon icon element to manage
+   */
+  setRibbonIcon(ribbonElement) {
+    this.ribbonIcon = ribbonElement;
+    this.updateRibbonIcon();
+  }
+  /**
+   * Set the status indicator element to manage
+   */
+  setStatusIndicator(statusElement) {
+    this.statusIndicator = statusElement;
+    this.updateStatusIndicator();
+  }
+  /**
+   * Set the side panel element to manage
+   */
+  setSidePanel(sidePanelElement) {
+    this.sidePanel = sidePanelElement;
+    this.sidePanelOriginalContent = sidePanelElement.innerHTML;
+    this.updateSidePanel();
+  }
+  updateRibbonIcon() {
+    if (!this.ribbonIcon)
+      return;
+    this.ribbonIcon.classList.add("state-transition");
+    if (this.trackingEnabled) {
+      this.ribbonIcon.classList.add("track-edits-enabled");
+      this.ribbonIcon.classList.remove("track-edits-disabled");
+      this.ribbonIcon.title = "Track Edits (Active) - Click to manage changes";
+      this.ribbonIcon.setAttribute("aria-label", "Track Edits is active. Click to manage tracked changes.");
+    } else {
+      this.ribbonIcon.classList.add("track-edits-disabled");
+      this.ribbonIcon.classList.remove("track-edits-enabled");
+      this.ribbonIcon.title = "Track Edits (Disabled) - Click to enable";
+      this.ribbonIcon.setAttribute("aria-label", "Track Edits disabled. Click to enable tracking.");
+    }
+    setTimeout(() => {
+      if (this.ribbonIcon) {
+        this.ribbonIcon.classList.remove("state-transition");
+      }
+    }, 300);
+  }
+  updateStatusIndicator() {
+    if (!this.statusIndicator)
+      return;
+    if (this.trackingEnabled) {
+      this.statusIndicator.classList.add("status-active");
+      this.statusIndicator.classList.remove("status-disabled");
+      this.statusIndicator.setAttribute("aria-label", "Track Edits is active");
+      this.statusIndicator.textContent = "Active";
+    } else {
+      this.statusIndicator.classList.add("status-disabled");
+      this.statusIndicator.classList.remove("status-active");
+      this.statusIndicator.setAttribute("aria-label", "Track Edits is disabled");
+      this.statusIndicator.textContent = "Disabled";
+    }
+  }
+  updateSidePanel() {
+    if (!this.sidePanel)
+      return;
+    if (this.trackingEnabled) {
+      this.sidePanel.classList.add("track-edits-active");
+      this.sidePanel.classList.remove("track-edits-disabled");
+      if (this.sidePanelOriginalContent) {
+        this.sidePanel.innerHTML = this.sidePanelOriginalContent;
+      }
+    } else {
+      this.sidePanel.classList.add("track-edits-disabled");
+      this.sidePanel.classList.remove("track-edits-active");
+      this.sidePanel.innerHTML = this.createEmptyStateHTML();
+    }
+  }
+  createEmptyStateHTML() {
+    return `
+      <div class="track-edits-empty-state">
+        <div class="empty-state-icon">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 12l2 2 4-4"></path>
+            <path d="M21 12c-1 0-3-1-3-3s2-3 3-3 3 1 3 3-2 3-3 3"></path>
+            <path d="M3 12c1 0 3-1 3-3s-2-3-3-3-3 1-3 3 2 3 3 3"></path>
+            <path d="M3 12h6m6 0h6"></path>
+          </svg>
+        </div>
+        <h3 class="empty-state-title">Tracking disabled</h3>
+        <p class="empty-state-description">
+          Enable Track Edits to see changes and suggestions for your document.
+        </p>
+        <button class="empty-state-button" onclick="window.TrackEdits?.enableTracking()">
+          Enable Track Edits
+        </button>
+      </div>
+    `;
+  }
+  saveState() {
+    sessionStorage.setItem("track-edits-enabled", String(this.trackingEnabled));
+  }
+  loadSavedState() {
+    const saved = sessionStorage.getItem("track-edits-enabled");
+    return saved !== null ? saved === "true" : true;
+  }
+  createAriaAnnouncer() {
+    let announcer = document.getElementById("track-edits-announcer");
+    if (!announcer) {
+      announcer = document.createElement("div");
+      announcer.id = "track-edits-announcer";
+      announcer.setAttribute("aria-live", "polite");
+      announcer.setAttribute("aria-atomic", "true");
+      announcer.style.position = "absolute";
+      announcer.style.left = "-10000px";
+      announcer.style.width = "1px";
+      announcer.style.height = "1px";
+      announcer.style.overflow = "hidden";
+      document.body.appendChild(announcer);
+    }
+  }
+  announceStateChange(enabled) {
+    const announcer = document.getElementById("track-edits-announcer");
+    if (announcer) {
+      announcer.textContent = enabled ? "Track Edits has been enabled" : "Track Edits has been disabled";
+    }
+  }
+  /**
+   * Clean up resources
+   */
+  destroy() {
+    const announcer = document.getElementById("track-edits-announcer");
+    if (announcer && announcer.parentNode) {
+      announcer.parentNode.removeChild(announcer);
+    }
+  }
+};
+
 // plugins/track-edits/src/main.ts
 var DEFAULT_SETTINGS = {
   enableTracking: true,
@@ -893,6 +1056,7 @@ if (DEBUG_MODE) {
 }
 var addDecorationEffect = import_state.StateEffect.define();
 var removeDecorationEffect = import_state.StateEffect.define();
+var clearAllDecorationsEffect = import_state.StateEffect.define();
 var DeletionWidget = class extends import_view.WidgetType {
   // Make public for StateField access
   constructor(deletedText, editId) {
@@ -1004,6 +1168,10 @@ var editDecorationField = import_state.StateField.define({
             return true;
           }
         });
+      } else if (effect.is(clearAllDecorationsEffect)) {
+        DebugMonitor.log("CLEAR_ALL_DECORATIONS_EFFECT", { previousSize: decorations.size });
+        removedDecorations = decorations.size;
+        decorations = import_view.Decoration.none;
       }
     }
     const finalSize = decorations.size;
@@ -1033,7 +1201,8 @@ var changeDetectionPlugin = import_view.ViewPlugin.fromClass(class {
       viewportChanged: update.viewportChanged,
       focusChanged: update.focusChanged
     });
-    if (update.docChanged && !isRejectingEdit && currentPluginInstance) {
+    const shouldProcessChanges = update.docChanged && !isRejectingEdit && currentPluginInstance && currentPluginInstance.settings.enableTracking && (!currentPluginInstance.toggleStateManager || currentPluginInstance.toggleStateManager.isTrackingEnabled);
+    if (shouldProcessChanges) {
       const extractTimer = DebugMonitor.startTimer("extractEditsFromUpdate");
       const edits = this.extractEditsFromUpdate(update);
       DebugMonitor.endTimer(extractTimer);
@@ -1102,6 +1271,7 @@ var TrackEditsPlugin = class extends import_obsidian4.Plugin {
   constructor() {
     super(...arguments);
     this.sidePanelView = null;
+    this.toggleStateManager = null;
     this.currentSession = null;
     this.currentEdits = [];
     this.currentEditorView = null;
@@ -1119,6 +1289,13 @@ var TrackEditsPlugin = class extends import_obsidian4.Plugin {
     this.editTracker = new EditTracker(this);
     this.editRenderer = new EditRenderer(this);
     this.clusterManager = new EditClusterManager(this);
+    this.toggleStateManager = new ToggleStateManager(this.app, (enabled) => {
+      if (enabled) {
+        this.startTracking();
+      } else {
+        this.stopTracking();
+      }
+    });
     this.initializeGlobalAPI();
     this.registerEditorExtension([changeDetectionPlugin, editDecorationField]);
     this.registerSafeEventHandlers();
@@ -1135,6 +1312,10 @@ var TrackEditsPlugin = class extends import_obsidian4.Plugin {
     try {
       this.stopTracking();
       this.cleanupGlobalAPI();
+      if (this.toggleStateManager) {
+        this.toggleStateManager.destroy();
+        this.toggleStateManager = null;
+      }
       console.log("Track Edits plugin unloaded");
     } catch (error) {
       console.error("Track Edits: Error during plugin unload:", error);
@@ -1248,8 +1429,15 @@ var TrackEditsPlugin = class extends import_obsidian4.Plugin {
   }
   addRibbonIcon() {
     this.ribbonIconEl = super.addRibbonIcon("edit", "Track Edits", (evt) => {
-      this.debouncedRibbonClick();
+      if (this.toggleStateManager) {
+        this.toggleStateManager.setTrackingEnabled(!this.toggleStateManager.isTrackingEnabled);
+      } else {
+        this.debouncedRibbonClick();
+      }
     });
+    if (this.ribbonIconEl && this.toggleStateManager) {
+      this.toggleStateManager.setRibbonIcon(this.ribbonIconEl);
+    }
     this.updateRibbonIcon();
   }
   updateRibbonIcon() {
@@ -1442,6 +1630,7 @@ var TrackEditsPlugin = class extends import_obsidian4.Plugin {
         if (this.editRenderer) {
           this.editRenderer.hideTrackingIndicator();
         }
+        this.clearAllDecorations();
         this.currentEdits = [];
         this.currentSession = null;
         this.lastActiveFile = null;
@@ -1825,7 +2014,28 @@ var TrackEditsPlugin = class extends import_obsidian4.Plugin {
     });
     editorView.dispatch({ effects: removeEffects });
   }
+  clearAllDecorations() {
+    let editorView = this.currentEditorView;
+    if (!editorView) {
+      editorView = this.findCurrentEditorView();
+    }
+    if (!editorView) {
+      DebugMonitor.log("CLEAR_ALL_DECORATIONS_FAILED", { reason: "no editor view available" });
+      return;
+    }
+    DebugMonitor.log("CLEAR_ALL_DECORATIONS_START", {
+      currentEditsCount: this.currentEdits.length,
+      hasEditorView: !!editorView
+    });
+    editorView.dispatch({
+      effects: clearAllDecorationsEffect.of(true)
+    });
+    DebugMonitor.log("CLEAR_ALL_DECORATIONS_COMPLETE", {
+      method: "clearAllDecorationsEffect"
+    });
+  }
   handleEditsFromCodeMirror(edits) {
+    var _a;
     const timer = DebugMonitor.startTimer("handleEditsFromCodeMirror");
     DebugMonitor.log("HANDLE_EDITS", {
       editCount: edits.length,
@@ -1834,9 +2044,10 @@ var TrackEditsPlugin = class extends import_obsidian4.Plugin {
       currentEditsCount: this.currentEdits.length,
       edits: edits.map((e) => ({ id: e.id, type: e.type, from: e.from, to: e.to }))
     });
-    if (!this.settings.enableTracking || !this.currentSession) {
+    const isTrackingEnabled = this.settings.enableTracking && (!this.toggleStateManager || this.toggleStateManager.isTrackingEnabled);
+    if (!isTrackingEnabled || !this.currentSession) {
       DebugMonitor.log("HANDLE_EDITS_SKIPPED", {
-        reason: !this.settings.enableTracking ? "tracking disabled" : "no session"
+        reason: !this.settings.enableTracking ? "settings disabled" : !((_a = this.toggleStateManager) == null ? void 0 : _a.isTrackingEnabled) ? "toggle disabled" : "no session"
       });
       DebugMonitor.endTimer(timer);
       return;
