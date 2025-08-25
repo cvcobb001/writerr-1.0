@@ -1,5 +1,9 @@
 /* Track Edits Plugin Styles */
 
+/* Import component styles */
+@import './styles/toggle-confirmation-modal.css';
+@import './styles/toggle-state-ui.css';
+
 /* Reset and base styles */
 .track-edits-view * {
   box-sizing: border-box;
