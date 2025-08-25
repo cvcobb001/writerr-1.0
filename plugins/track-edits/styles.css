@@ -190,6 +190,112 @@
   border-left-color: #f59e0b;
 }
 
+/* Toggle Confirmation Modal Styles */
+.toggle-confirmation-modal {
+  min-width: 400px;
+  max-width: 500px;
+}
+
+.toggle-confirmation-modal .modal-title {
+  margin: 0 0 16px 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.toggle-confirmation-modal .modal-message {
+  margin: 0 0 20px 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-normal);
+}
+
+.toggle-confirmation-modal .checkbox-container {
+  margin: 0 0 24px 0;
+}
+
+.toggle-confirmation-modal .checkbox-label {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  font-size: 14px;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-direction: row !important;
+}
+
+.toggle-confirmation-modal .dont-ask-checkbox {
+  margin: 0 8px 0 0 !important;
+  flex-shrink: 0;
+  cursor: pointer !important;
+  width: 16px !important;
+  height: 16px !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  border: 2px solid var(--text-muted) !important;
+  border-radius: 3px !important;
+  background: var(--background-primary) !important;
+  position: relative;
+  outline: none !important;
+}
+
+.toggle-confirmation-modal .dont-ask-checkbox:checked {
+  background: var(--interactive-accent) !important;
+  border-color: var(--interactive-accent) !important;
+}
+
+.toggle-confirmation-modal .dont-ask-checkbox:checked::before {
+  content: '✓' !important;
+  position: absolute;
+  top: -1px;
+  left: 2px;
+  color: white !important;
+  font-size: 12px;
+  font-weight: bold;
+  line-height: 1;
+}
+
+.toggle-confirmation-modal .checkbox-label span {
+  display: inline !important;
+  white-space: nowrap !important;
+}
+
+.toggle-confirmation-modal .modal-button-container {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.toggle-confirmation-modal .modal-button {
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--background-modifier-border);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.toggle-confirmation-modal .modal-button-secondary {
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+
+.toggle-confirmation-modal .modal-button-secondary:hover {
+  background: var(--background-modifier-hover);
+}
+
+.toggle-confirmation-modal .modal-button-primary {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-color: var(--interactive-accent);
+}
+
+.toggle-confirmation-modal .modal-button-primary:hover {
+  background: var(--interactive-accent-hover);
+}
+
 /* Export modal styles */
 .track-edits-export-modal {
   min-width: 500px;

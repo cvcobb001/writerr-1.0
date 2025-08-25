@@ -7,6 +7,7 @@ import { EditRenderer } from './edit-renderer';
 import { EditSidePanelView } from './side-panel-view';
 import { EditClusterManager } from './edit-cluster-manager';
 import { ToggleStateManager } from './ui/ToggleStateManager';
+import { ToggleConfirmationModal } from './components/ToggleConfirmationModal';
 import { EditSession, EditChange, WriterrlGlobalAPI } from '../../../shared/types';
 import { generateId, debounce } from '../../../shared/utils';
 
@@ -422,7 +423,7 @@ export default class TrackEditsPlugin extends Plugin {
       if (enabled) {
         this.startTracking();
       } else {
-        this.stopTracking();
+        this.handleToggleOff();
       }
     });
 
@@ -1379,6 +1380,77 @@ export default class TrackEditsPlugin extends Plugin {
     });
 
     editorView.dispatch({ effects: removeEffects });
+  }
+
+  private handleToggleOff() {
+    // Epic's decision tree: Check for pending edits
+    const pendingEditCount = this.currentEdits.length;
+    
+    DebugMonitor.log('HANDLE_TOGGLE_OFF', {
+      pendingEdits: pendingEditCount,
+      hasSession: !!this.currentSession
+    });
+
+    // If no pending edits, toggle off directly
+    if (pendingEditCount === 0) {
+      DebugMonitor.log('TOGGLE_OFF_NO_EDITS', { action: 'direct_toggle' });
+      this.stopTracking();
+      return;
+    }
+
+    // TODO: Add "skip confirmation" logic in future update when checkbox is working
+
+    // Show confirmation modal for pending edits (Epic's core UX pattern)
+    DebugMonitor.log('TOGGLE_OFF_SHOW_MODAL', { pendingEdits: pendingEditCount });
+    this.showToggleConfirmationModal(pendingEditCount);
+  }
+
+  private showToggleConfirmationModal(editCount: number) {
+    const modal = new ToggleConfirmationModal(this.app, {
+      editCount,
+      onConfirm: () => {
+        DebugMonitor.log('TOGGLE_CONFIRMATION_CONFIRMED', { editCount });
+        this.discardEditsAndStop();
+      },
+      onCancel: () => {
+        DebugMonitor.log('TOGGLE_CONFIRMATION_CANCELLED', { editCount });
+        // Reset toggle state back to enabled since user cancelled
+        // Do NOT call setTrackingEnabled as it triggers the callback again
+        // Just update the UI state directly
+        if (this.toggleStateManager && this.ribbonIconEl) {
+          // Manually update UI without triggering callback
+          this.ribbonIconEl.classList.add('track-edits-enabled');
+          this.ribbonIconEl.classList.remove('track-edits-disabled');
+        }
+      }
+    });
+    
+    modal.open();
+  }
+
+  private discardEditsAndStop() {
+    // Epic's approach: Use existing proven reject functionality
+    const clusters = this.clusterManager.clusterEdits(this.currentEdits);
+    const clusterIds = clusters.map(cluster => cluster.id);
+    
+    if (clusterIds.length > 0) {
+      DebugMonitor.log('DISCARD_EDITS_VIA_REJECT', { 
+        clusterCount: clusterIds.length,
+        method: 'rejectAllEditClusters'
+      });
+      // Leverage existing battle-tested reject functionality
+      this.rejectAllEditClusters(clusterIds);
+    } else {
+      // Fallback to direct clearing if no clusters
+      DebugMonitor.log('DISCARD_EDITS_DIRECT_CLEAR', { 
+        editCount: this.currentEdits.length,
+        method: 'clearAllDecorations'
+      });
+      this.clearAllDecorations();
+    }
+    
+    // Complete the stop tracking process
+    this.stopTracking();
   }
 
   private clearAllDecorations() {

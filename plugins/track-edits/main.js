@@ -23,7 +23,7 @@ __export(main_exports, {
   default: () => TrackEditsPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian4 = require("obsidian");
+var import_obsidian5 = require("obsidian");
 var import_state = require("@codemirror/state");
 var import_view = require("@codemirror/view");
 
@@ -965,6 +965,80 @@ var ToggleStateManager = class {
   }
 };
 
+// plugins/track-edits/src/components/ToggleConfirmationModal.ts
+var import_obsidian4 = require("obsidian");
+var ToggleConfirmationModal = class extends import_obsidian4.Modal {
+  constructor(app, options) {
+    super(app);
+    this.options = options;
+    this.keydownHandler = this.handleKeydown.bind(this);
+  }
+  get editCount() {
+    return this.options.editCount;
+  }
+  get onConfirm() {
+    return this.options.onConfirm;
+  }
+  get onCancel() {
+    return this.options.onCancel;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    const { editCount } = this.options;
+    contentEl.empty();
+    contentEl.addClass("toggle-confirmation-modal");
+    const header = contentEl.createEl("h2", {
+      text: "Turn Off Track Edits?",
+      cls: "modal-title"
+    });
+    const messageEl = contentEl.createEl("p", {
+      cls: "modal-message"
+    });
+    const editText = editCount === 1 ? "edit" : "edits";
+    messageEl.textContent = `You have ${editCount} pending ${editText}. These changes will be lost if you turn off tracking.`;
+    const buttonContainer = contentEl.createEl("div", {
+      cls: "modal-button-container"
+    });
+    const cancelButton = buttonContainer.createEl("button", {
+      text: "Keep Tracking",
+      cls: "modal-button modal-button-secondary"
+    });
+    cancelButton.addEventListener("click", () => {
+      this.handleCancel();
+    });
+    const confirmButton = buttonContainer.createEl("button", {
+      text: "Turn Off Anyway",
+      cls: "modal-button modal-button-primary"
+    });
+    confirmButton.addEventListener("click", () => {
+      this.handleConfirm();
+    });
+    cancelButton.focus();
+    document.addEventListener("keydown", this.keydownHandler);
+  }
+  onClose() {
+    document.removeEventListener("keydown", this.keydownHandler);
+  }
+  handleKeydown(e) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      this.handleCancel();
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      this.handleConfirm();
+    }
+  }
+  handleConfirm() {
+    this.options.onConfirm();
+    this.close();
+  }
+  handleCancel() {
+    this.options.onCancel();
+    this.close();
+  }
+  // TODO: Add shouldSkipConfirmation() and resetSessionPreference() methods in future update
+};
+
 // plugins/track-edits/src/main.ts
 var DEFAULT_SETTINGS = {
   enableTracking: true,
@@ -1267,7 +1341,7 @@ var changeDetectionPlugin = import_view.ViewPlugin.fromClass(class {
     return edits;
   }
 });
-var TrackEditsPlugin = class extends import_obsidian4.Plugin {
+var TrackEditsPlugin = class extends import_obsidian5.Plugin {
   constructor() {
     super(...arguments);
     this.sidePanelView = null;
@@ -1293,7 +1367,7 @@ var TrackEditsPlugin = class extends import_obsidian4.Plugin {
       if (enabled) {
         this.startTracking();
       } else {
-        this.stopTracking();
+        this.handleToggleOff();
       }
     });
     this.initializeGlobalAPI();
@@ -1961,7 +2035,7 @@ var TrackEditsPlugin = class extends import_obsidian4.Plugin {
     DebugMonitor.endTimer(timer);
   }
   findCurrentEditorView() {
-    const activeLeaf = this.app.workspace.getActiveViewOfType(import_obsidian4.MarkdownView);
+    const activeLeaf = this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
     if (activeLeaf && activeLeaf.editor) {
       const editorView = activeLeaf.editor.cm;
       if (editorView) {
@@ -1981,7 +2055,7 @@ var TrackEditsPlugin = class extends import_obsidian4.Plugin {
       }
     }
     const mostRecentLeaf = this.app.workspace.getMostRecentLeaf();
-    if (mostRecentLeaf && mostRecentLeaf.view instanceof import_obsidian4.MarkdownView && mostRecentLeaf.view.editor) {
+    if (mostRecentLeaf && mostRecentLeaf.view instanceof import_obsidian5.MarkdownView && mostRecentLeaf.view.editor) {
       const editorView = mostRecentLeaf.view.editor.cm;
       if (editorView) {
         DebugMonitor.log("FOUND_EDITOR_VIEW", { method: "most_recent_leaf" });
@@ -2013,6 +2087,55 @@ var TrackEditsPlugin = class extends import_obsidian4.Plugin {
       usingStored: editorView === this.currentEditorView
     });
     editorView.dispatch({ effects: removeEffects });
+  }
+  handleToggleOff() {
+    const pendingEditCount = this.currentEdits.length;
+    DebugMonitor.log("HANDLE_TOGGLE_OFF", {
+      pendingEdits: pendingEditCount,
+      hasSession: !!this.currentSession
+    });
+    if (pendingEditCount === 0) {
+      DebugMonitor.log("TOGGLE_OFF_NO_EDITS", { action: "direct_toggle" });
+      this.stopTracking();
+      return;
+    }
+    DebugMonitor.log("TOGGLE_OFF_SHOW_MODAL", { pendingEdits: pendingEditCount });
+    this.showToggleConfirmationModal(pendingEditCount);
+  }
+  showToggleConfirmationModal(editCount) {
+    const modal = new ToggleConfirmationModal(this.app, {
+      editCount,
+      onConfirm: () => {
+        DebugMonitor.log("TOGGLE_CONFIRMATION_CONFIRMED", { editCount });
+        this.discardEditsAndStop();
+      },
+      onCancel: () => {
+        DebugMonitor.log("TOGGLE_CONFIRMATION_CANCELLED", { editCount });
+        if (this.toggleStateManager && this.ribbonIconEl) {
+          this.ribbonIconEl.classList.add("track-edits-enabled");
+          this.ribbonIconEl.classList.remove("track-edits-disabled");
+        }
+      }
+    });
+    modal.open();
+  }
+  discardEditsAndStop() {
+    const clusters = this.clusterManager.clusterEdits(this.currentEdits);
+    const clusterIds = clusters.map((cluster) => cluster.id);
+    if (clusterIds.length > 0) {
+      DebugMonitor.log("DISCARD_EDITS_VIA_REJECT", {
+        clusterCount: clusterIds.length,
+        method: "rejectAllEditClusters"
+      });
+      this.rejectAllEditClusters(clusterIds);
+    } else {
+      DebugMonitor.log("DISCARD_EDITS_DIRECT_CLEAR", {
+        editCount: this.currentEdits.length,
+        method: "clearAllDecorations"
+      });
+      this.clearAllDecorations();
+    }
+    this.stopTracking();
   }
   clearAllDecorations() {
     let editorView = this.currentEditorView;

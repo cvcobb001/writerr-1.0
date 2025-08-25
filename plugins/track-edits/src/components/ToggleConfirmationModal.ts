@@ -44,40 +44,15 @@ export class ToggleConfirmationModal extends Modal {
       cls: 'modal-title'
     });
 
-    // Create conversational message
+    // Create clear, concise message
     const messageEl = contentEl.createEl('p', {
       cls: 'modal-message'
     });
     
     const editText = editCount === 1 ? 'edit' : 'edits';
-    messageEl.textContent = `You have ${editCount} pending ${editText}. Turning off Track Edits will discard these changes - is that okay?`;
+    messageEl.textContent = `You have ${editCount} pending ${editText}. These changes will be lost if you turn off tracking.`;
 
-    // Create checkbox for "Don't ask again"
-    const checkboxContainer = contentEl.createEl('div', {
-      cls: 'checkbox-container'
-    });
-
-    const checkboxLabel = checkboxContainer.createEl('label', {
-      cls: 'checkbox-label'
-    });
-
-    const checkbox = checkboxLabel.createEl('input', {
-      type: 'checkbox',
-      cls: 'dont-ask-checkbox'
-    });
-
-    checkboxLabel.createSpan({
-      text: "Don't ask again this session"
-    });
-
-    // Handle checkbox change
-    checkbox.addEventListener('change', () => {
-      if (checkbox.checked) {
-        sessionStorage.setItem('track-edits-skip-toggle-confirmation', 'true');
-      } else {
-        sessionStorage.removeItem('track-edits-skip-toggle-confirmation');
-      }
-    });
+    // TODO: Add "Don't ask again" option in future update
 
     // Create button container
     const buttonContainer = contentEl.createEl('div', {
@@ -86,7 +61,7 @@ export class ToggleConfirmationModal extends Modal {
 
     // Create Cancel button (secondary)
     const cancelButton = buttonContainer.createEl('button', {
-      text: 'Cancel',
+      text: 'Keep Tracking',
       cls: 'modal-button modal-button-secondary'
     });
 
@@ -96,7 +71,7 @@ export class ToggleConfirmationModal extends Modal {
 
     // Create Confirm button (primary)
     const confirmButton = buttonContainer.createEl('button', {
-      text: 'Discard & Turn Off',
+      text: 'Turn Off Anyway',
       cls: 'modal-button modal-button-primary'
     });
 
@@ -136,17 +111,5 @@ export class ToggleConfirmationModal extends Modal {
     this.close();
   }
 
-  /**
-   * Static method to check if confirmation should be skipped
-   */
-  static shouldSkipConfirmation(): boolean {
-    return sessionStorage.getItem('track-edits-skip-toggle-confirmation') === 'true';
-  }
-
-  /**
-   * Static method to reset session preference
-   */
-  static resetSessionPreference(): void {
-    sessionStorage.removeItem('track-edits-skip-toggle-confirmation');
-  }
+  // TODO: Add shouldSkipConfirmation() and resetSessionPreference() methods in future update
 }
