@@ -1,0 +1,58 @@
+{
+  "name": "writerr-plugins",
+  "version": "1.0.0",
+  "description": "Writerr Obsidian plugin suite - AI-powered writing assistance",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "build:dev": "npm run build:dev --workspaces",
+    "build:prod": "NODE_ENV=production npm run build --workspaces",
+    "dev": "concurrently \"npm run dev:shared\" \"npm run dev:plugins\"",
+    "dev:shared": "npm run dev --workspace=@writerr/shared",
+    "dev:plugins": "concurrently \"npm run dev --workspace=@writerr/track-edits\" \"npm run dev --workspace=@writerr/writerr-chat\" \"npm run dev --workspace=@writerr/ai-editorial-functions\"",
+    "dev:track-edits": "npm run dev --workspace=@writerr/track-edits",
+    "dev:writerr-chat": "npm run dev --workspace=@writerr/writerr-chat",
+    "dev:ai-editorial": "npm run dev --workspace=@writerr/ai-editorial-functions",
+    "clean": "npm run clean --workspaces && rm -rf node_modules",
+    "test": "npm run test --workspaces",
+    "test:watch": "npm run test:watch --workspaces",
+    "lint": "npm run lint --workspaces",
+    "lint:fix": "npm run lint:fix --workspaces",
+    "type-check": "npm run type-check --workspaces"
+  },
+  "devDependencies": {
+    "@types/node": "^20.8.0",
+    "typescript": "^5.2.2",
+    "rollup": "^3.29.4",
+    "@rollup/plugin-typescript": "^11.1.5",
+    "@rollup/plugin-node-resolve": "^15.2.3",
+    "@rollup/plugin-commonjs": "^25.0.7",
+    "@rollup/plugin-json": "^6.0.1",
+    "rollup-plugin-copy": "^3.5.0",
+    "eslint": "^8.51.0",
+    "@typescript-eslint/eslint-plugin": "^6.7.4",
+    "@typescript-eslint/parser": "^6.7.4",
+    "jest": "^29.7.0",
+    "@types/jest": "^29.5.5",
+    "ts-jest": "^29.1.1",
+    "concurrently": "^8.2.2",
+    "chokidar-cli": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "keywords": [
+    "obsidian",
+    "plugin",
+    "ai",
+    "writing",
+    "collaboration",
+    "typescript"
+  ],
+  "author": "Writerr Team",
+  "license": "MIT"
+}

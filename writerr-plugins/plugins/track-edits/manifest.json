@@ -1,0 +1,12 @@
+{
+  "id": "track-edits",
+  "name": "Track Edits",
+  "version": "1.0.0",
+  "minAppVersion": "1.0.0",
+  "description": "Real-time visual tracking of document changes with color-coded editor decorations and comprehensive editing analytics for Obsidian.",
+  "author": "Writerr AI Editorial Platform",
+  "authorUrl": "https://github.com/writerr-ai",
+  "fundingUrl": "",
+  "isDesktopOnly": false,
+  "js": "main.js"
+}
