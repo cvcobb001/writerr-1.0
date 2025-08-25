@@ -1,0 +1,300 @@
+{
+  "inputs": {
+    "node_modules/@marijn/find-cluster-break/src/index.js": {
+      "bytes": 4241,
+      "imports": [],
+      "format": "esm"
+    },
+    "node_modules/@codemirror/state/dist/index.js": {
+      "bytes": 144541,
+      "imports": [
+        {
+          "path": "node_modules/@marijn/find-cluster-break/src/index.js",
+          "kind": "import-statement",
+          "original": "@marijn/find-cluster-break"
+        }
+      ],
+      "format": "esm"
+    },
+    "node_modules/style-mod/src/style-mod.js": {
+      "bytes": 6935,
+      "imports": [],
+      "format": "esm"
+    },
+    "node_modules/w3c-keyname/index.js": {
+      "bytes": 2630,
+      "imports": [],
+      "format": "esm"
+    },
+    "node_modules/crelt/index.js": {
+      "bytes": 951,
+      "imports": [],
+      "format": "esm"
+    },
+    "node_modules/@codemirror/view/dist/index.js": {
+      "bytes": 468857,
+      "imports": [
+        {
+          "path": "node_modules/@codemirror/state/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/state"
+        },
+        {
+          "path": "node_modules/style-mod/src/style-mod.js",
+          "kind": "import-statement",
+          "original": "style-mod"
+        },
+        {
+          "path": "node_modules/w3c-keyname/index.js",
+          "kind": "import-statement",
+          "original": "w3c-keyname"
+        },
+        {
+          "path": "node_modules/crelt/index.js",
+          "kind": "import-statement",
+          "original": "crelt"
+        }
+      ],
+      "format": "esm"
+    },
+    "plugins/track-edits/src/settings.ts": {
+      "bytes": 4282,
+      "imports": [
+        {
+          "path": "obsidian",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "./main",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "esm"
+    },
+    "shared/utils/index.ts": {
+      "bytes": 1926,
+      "imports": [],
+      "format": "esm"
+    },
+    "plugins/track-edits/src/edit-tracker.ts": {
+      "bytes": 5308,
+      "imports": [
+        {
+          "path": "obsidian",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "@shared/types",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "shared/utils/index.ts",
+          "kind": "import-statement",
+          "original": "@shared/utils"
+        },
+        {
+          "path": "./main",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "esm"
+    },
+    "plugins/track-edits/src/edit-renderer.ts": {
+      "bytes": 8329,
+      "imports": [
+        {
+          "path": "@shared/types",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "./main",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "obsidian",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "esm"
+    },
+    "plugins/track-edits/src/side-panel-view.ts": {
+      "bytes": 9909,
+      "imports": [
+        {
+          "path": "obsidian",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "./main",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "./edit-cluster-manager",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "esm"
+    },
+    "plugins/track-edits/src/edit-cluster-manager.ts": {
+      "bytes": 5901,
+      "imports": [
+        {
+          "path": "@shared/types",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "shared/utils/index.ts",
+          "kind": "import-statement",
+          "original": "@shared/utils"
+        },
+        {
+          "path": "./main",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "esm"
+    },
+    "plugins/track-edits/src/main.ts": {
+      "bytes": 49237,
+      "imports": [
+        {
+          "path": "obsidian",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node_modules/@codemirror/state/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/state"
+        },
+        {
+          "path": "node_modules/@codemirror/view/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/view"
+        },
+        {
+          "path": "plugins/track-edits/src/settings.ts",
+          "kind": "import-statement",
+          "original": "./settings"
+        },
+        {
+          "path": "plugins/track-edits/src/edit-tracker.ts",
+          "kind": "import-statement",
+          "original": "./edit-tracker"
+        },
+        {
+          "path": "plugins/track-edits/src/edit-renderer.ts",
+          "kind": "import-statement",
+          "original": "./edit-renderer"
+        },
+        {
+          "path": "plugins/track-edits/src/side-panel-view.ts",
+          "kind": "import-statement",
+          "original": "./side-panel-view"
+        },
+        {
+          "path": "plugins/track-edits/src/edit-cluster-manager.ts",
+          "kind": "import-statement",
+          "original": "./edit-cluster-manager"
+        },
+        {
+          "path": "../../../shared/types",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "shared/utils/index.ts",
+          "kind": "import-statement",
+          "original": "../../../shared/utils"
+        }
+      ],
+      "format": "esm"
+    }
+  },
+  "outputs": {
+    "plugins/track-edits/main.js.map": {
+      "imports": [],
+      "exports": [],
+      "inputs": {},
+      "bytes": 1050208
+    },
+    "plugins/track-edits/main.js": {
+      "imports": [
+        {
+          "path": "obsidian",
+          "kind": "require-call",
+          "external": true
+        },
+        {
+          "path": "obsidian",
+          "kind": "require-call",
+          "external": true
+        },
+        {
+          "path": "obsidian",
+          "kind": "require-call",
+          "external": true
+        },
+        {
+          "path": "obsidian",
+          "kind": "require-call",
+          "external": true
+        }
+      ],
+      "exports": [],
+      "entryPoint": "plugins/track-edits/src/main.ts",
+      "inputs": {
+        "plugins/track-edits/src/main.ts": {
+          "bytesInOutput": 41204
+        },
+        "node_modules/@marijn/find-cluster-break/src/index.js": {
+          "bytesInOutput": 3635
+        },
+        "node_modules/@codemirror/state/dist/index.js": {
+          "bytesInOutput": 109675
+        },
+        "node_modules/style-mod/src/style-mod.js": {
+          "bytesInOutput": 5214
+        },
+        "node_modules/w3c-keyname/index.js": {
+          "bytesInOutput": 1606
+        },
+        "node_modules/@codemirror/view/dist/index.js": {
+          "bytesInOutput": 284524
+        },
+        "plugins/track-edits/src/settings.ts": {
+          "bytesInOutput": 3679
+        },
+        "shared/utils/index.ts": {
+          "bytesInOutput": 401
+        },
+        "plugins/track-edits/src/edit-tracker.ts": {
+          "bytesInOutput": 4701
+        },
+        "plugins/track-edits/src/edit-renderer.ts": {
+          "bytesInOutput": 6919
+        },
+        "plugins/track-edits/src/side-panel-view.ts": {
+          "bytesInOutput": 7835
+        },
+        "plugins/track-edits/src/edit-cluster-manager.ts": {
+          "bytesInOutput": 4315
+        }
+      },
+      "bytes": 475102
+    }
+  }
+}
