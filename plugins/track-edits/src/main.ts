@@ -1,5 +1,5 @@
 import { Plugin, WorkspaceLeaf, ItemView } from 'obsidian';
-import { globalRegistry, globalEventBus } from '@writerr/shared';
+import { globalRegistry, globalEventBus } from './shared-mock';
 import { TrackEditsView } from './components/TrackEditsView';
 import { mockChanges, mockSession, mockTimeline, mockHeatmapData } from './mock-data';
 import { Change, BulkOperation, ChangeStatus } from './types';

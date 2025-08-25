@@ -1,11 +1,11 @@
-import { App, HTMLElement as ObsidianElement } from 'obsidian';
+import { App } from 'obsidian';
 
 export type StateChangeCallback = (enabled: boolean) => void;
 
 export class ToggleStateManager {
   private app: App;
   private trackingEnabled: boolean;
-  private ribbonIcon: ObsidianElement | null = null;
+  private ribbonIcon: HTMLElement | null = null;
   private statusIndicator: HTMLElement | null = null;
   private sidePanel: HTMLElement | null = null;
   private sidePanelOriginalContent: string = '';
@@ -54,7 +54,7 @@ export class ToggleStateManager {
   /**
    * Set the ribbon icon element to manage
    */
-  setRibbonIcon(ribbonElement: ObsidianElement): void {
+  setRibbonIcon(ribbonElement: HTMLElement): void {
     this.ribbonIcon = ribbonElement;
     this.updateRibbonIcon();
   }
@@ -81,24 +81,24 @@ export class ToggleStateManager {
     if (!this.ribbonIcon) return;
 
     // Add transition class for smooth animation
-    this.ribbonIcon.addClass('state-transition');
+    this.ribbonIcon.classList.add('state-transition');
 
     if (this.trackingEnabled) {
-      this.ribbonIcon.addClass('track-edits-enabled');
-      this.ribbonIcon.removeClass('track-edits-disabled');
-      this.ribbonIcon.setTooltip('Track Edits (Active) - Click to manage changes');
+      this.ribbonIcon.classList.add('track-edits-enabled');
+      this.ribbonIcon.classList.remove('track-edits-disabled');
+      this.ribbonIcon.title = 'Track Edits (Active) - Click to manage changes';
       this.ribbonIcon.setAttribute('aria-label', 'Track Edits is active. Click to manage tracked changes.');
     } else {
-      this.ribbonIcon.addClass('track-edits-disabled');
-      this.ribbonIcon.removeClass('track-edits-enabled');
-      this.ribbonIcon.setTooltip('Track Edits (Disabled) - Click to enable');
+      this.ribbonIcon.classList.add('track-edits-disabled');
+      this.ribbonIcon.classList.remove('track-edits-enabled');
+      this.ribbonIcon.title = 'Track Edits (Disabled) - Click to enable';
       this.ribbonIcon.setAttribute('aria-label', 'Track Edits disabled. Click to enable tracking.');
     }
 
     // Remove transition class after animation completes
     setTimeout(() => {
       if (this.ribbonIcon) {
-        this.ribbonIcon.removeClass('state-transition');
+        this.ribbonIcon.classList.remove('state-transition');
       }
     }, 300);
   }
@@ -107,13 +107,13 @@ export class ToggleStateManager {
     if (!this.statusIndicator) return;
 
     if (this.trackingEnabled) {
-      this.statusIndicator.addClass('status-active');
-      this.statusIndicator.removeClass('status-disabled');
+      this.statusIndicator.classList.add('status-active');
+      this.statusIndicator.classList.remove('status-disabled');
       this.statusIndicator.setAttribute('aria-label', 'Track Edits is active');
       this.statusIndicator.textContent = 'Active';
     } else {
-      this.statusIndicator.addClass('status-disabled');
-      this.statusIndicator.removeClass('status-active');
+      this.statusIndicator.classList.add('status-disabled');
+      this.statusIndicator.classList.remove('status-active');
       this.statusIndicator.setAttribute('aria-label', 'Track Edits is disabled');
       this.statusIndicator.textContent = 'Disabled';
     }
@@ -123,15 +123,15 @@ export class ToggleStateManager {
     if (!this.sidePanel) return;
 
     if (this.trackingEnabled) {
-      this.sidePanel.addClass('track-edits-active');
-      this.sidePanel.removeClass('track-edits-disabled');
+      this.sidePanel.classList.add('track-edits-active');
+      this.sidePanel.classList.remove('track-edits-disabled');
       // Restore original content when re-enabled
       if (this.sidePanelOriginalContent) {
         this.sidePanel.innerHTML = this.sidePanelOriginalContent;
       }
     } else {
-      this.sidePanel.addClass('track-edits-disabled');
-      this.sidePanel.removeClass('track-edits-active');
+      this.sidePanel.classList.add('track-edits-disabled');
+      this.sidePanel.classList.remove('track-edits-active');
       // Show empty state
       this.sidePanel.innerHTML = this.createEmptyStateHTML();
     }
