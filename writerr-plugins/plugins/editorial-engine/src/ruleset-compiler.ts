@@ -284,87 +284,369 @@ export class RulesetCompiler {
 }
 
 class NaturalLanguageProcessor {
+  // Common patterns for better rule parsing
+  private readonly QUANTIFIER_PATTERNS = [
+    /(\d+)\s*%/i,                           // "25%", "50%"
+    /no more than\s+(\d+)\s*%/i,           // "no more than 15%"
+    /less than\s+(\d+)\s*%/i,              // "less than 20%"
+    /under\s+(\d+)\s*%/i,                  // "under 10%"
+    /(\d+)\s*(words?|characters?|sentences?)/i, // "100 words", "50 characters"
+    /minimal(?:ly)?/i,                     // "minimal changes"
+    /maximum\s+(\d+)/i                     // "maximum 3 sentences"
+  ];
+
+  private readonly PERMISSION_KEYWORDS = [
+    'allow', 'permit', 'enable', 'fix', 'correct', 'improve', 'enhance', 
+    'adjust', 'modify', 'update', 'refine', 'polish', 'standardize'
+  ];
+
+  private readonly PROHIBITION_KEYWORDS = [
+    'never', 'don\'t', 'avoid', 'prevent', 'prohibit', 'forbid', 
+    'exclude', 'reject', 'disallow', 'no', 'not'
+  ];
+
+  private readonly FOCUS_KEYWORDS = [
+    'focus', 'emphasize', 'prioritize', 'concentrate', 'target', 
+    'highlight', 'stress', 'feature'
+  ];
+
+  private readonly BOUNDARY_KEYWORDS = [
+    'limit', 'restrict', 'bound', 'constrain', 'cap', 'maximum', 
+    'minimum', 'within', 'under', 'over'
+  ];
+
   async parse(rule: string, ruleType: string): Promise<ParsedRule> {
-    // Simple rule parsing - in a real implementation, this would use NLP libraries
+    // Enhanced rule parsing with better NLP analysis
     const confidence = this.calculateConfidence(rule);
-    const intent = this.extractIntent(rule);
+    const intent = this.extractIntent(rule, ruleType);
     const parameters = this.extractParameters(rule);
+    const context = this.extractContext(rule);
+    const constraints = this.extractConstraintHints(rule);
 
     return {
       type: ruleType,
       intent,
       confidence,
-      parameters
+      parameters: {
+        ...parameters,
+        context,
+        constraints,
+        originalRule: rule
+      }
     };
   }
 
   private calculateConfidence(rule: string): number {
-    // Simple confidence calculation based on rule clarity and keywords
-    let confidence = 0.5; // Base confidence
+    let confidence = 0.4; // Base confidence (reduced from 0.5)
 
-    // Increase confidence for specific, clear rules
-    const specificKeywords = [
-      'grammar', 'spelling', 'punctuation', 'voice', 'tone', 'style',
-      'meaning', 'content', 'structure', 'flow', 'clarity'
+    // Rule clarity indicators
+    const clarityIndicators = [
+      /specific|exact|precisely|clearly|explicitly/i,
+      /always|never|must|should|shall/i,
+      /\d+/,  // Contains numbers
+      /grammar|spelling|punctuation|style|tone|voice|meaning/i
     ];
 
-    for (const keyword of specificKeywords) {
-      if (rule.toLowerCase().includes(keyword)) {
+    for (const indicator of clarityIndicators) {
+      if (indicator.test(rule)) {
         confidence += 0.1;
       }
     }
 
-    // Increase confidence for quantifiable rules
-    if (rule.match(/\d+%/) || rule.match(/\d+\s*(words?|characters?)/)) {
+    // Quantifiable rules get higher confidence
+    if (this.hasQuantifiers(rule)) {
       confidence += 0.2;
     }
 
-    // Cap at 1.0
+    // Technical specificity
+    const technicalTerms = [
+      'subject-verb agreement', 'passive voice', 'sentence structure',
+      'paragraph transitions', 'logical flow', 'argumentation',
+      'semantic analysis', 'syntactic correctness'
+    ];
+
+    for (const term of technicalTerms) {
+      if (rule.toLowerCase().includes(term)) {
+        confidence += 0.15;
+        break; // Only add once for technical specificity
+      }
+    }
+
+    // Rule structure quality
+    if (rule.length > 20 && rule.length < 200) { // Reasonable length
+      confidence += 0.05;
+    }
+
     return Math.min(confidence, 1.0);
   }
 
-  private extractIntent(rule: string): string {
-    // Extract the main intent from the rule
-    // This is a simplified implementation
+  private extractIntent(rule: string, ruleType: string): string {
+    const lowerRule = rule.toLowerCase();
     
-    const rule_lower = rule.toLowerCase();
-    
-    if (rule_lower.includes('fix') || rule_lower.includes('correct')) {
-      return 'correction';
+    // Action-based intent extraction
+    const actionPatterns = [
+      { pattern: /fix|correct|repair/, intent: 'correction' },
+      { pattern: /improve|enhance|refine|polish/, intent: 'enhancement' },
+      { pattern: /preserve|maintain|keep|retain/, intent: 'preservation' },
+      { pattern: /check|validate|verify|ensure/, intent: 'validation' },
+      { pattern: /rewrite|restructure|reorganize/, intent: 'restructuring' },
+      { pattern: /summarize|condense|shorten/, intent: 'summarization' },
+      { pattern: /expand|elaborate|develop/, intent: 'expansion' },
+      { pattern: /standardize|normalize|format/, intent: 'standardization' }
+    ];
+
+    for (const { pattern, intent } of actionPatterns) {
+      if (pattern.test(lowerRule)) {
+        return intent;
+      }
+    }
+
+    // Domain-specific intent extraction
+    if (lowerRule.includes('grammar') || lowerRule.includes('spelling')) {
+      return 'grammatical-correction';
     }
     
-    if (rule_lower.includes('improve') || rule_lower.includes('enhance')) {
-      return 'improvement';
+    if (lowerRule.includes('style') || lowerRule.includes('flow')) {
+      return 'stylistic-improvement';
     }
     
-    if (rule_lower.includes('preserve') || rule_lower.includes('maintain')) {
-      return 'preservation';
+    if (lowerRule.includes('structure') || lowerRule.includes('organization')) {
+      return 'structural-editing';
     }
-    
-    if (rule_lower.includes('never') || rule_lower.includes('don\'t') || rule_lower.includes('avoid')) {
-      return 'prohibition';
+
+    if (lowerRule.includes('voice') || lowerRule.includes('tone')) {
+      return 'voice-preservation';
     }
-    
-    // Default to the rule text itself
-    return rule.trim();
+
+    // Fallback based on rule type
+    const typeBasedIntents: Record<string, string> = {
+      'permission': 'allow-operation',
+      'prohibition': 'prevent-operation',
+      'boundary': 'limit-operation',
+      'focus': 'prioritize-operation'
+    };
+
+    return typeBasedIntents[ruleType] || rule.trim();
   }
 
   private extractParameters(rule: string): Record<string, any> {
     const parameters: Record<string, any> = {};
     
-    // Extract percentages
-    const percentageMatch = rule.match(/(\d+)%/);
-    if (percentageMatch) {
-      parameters.percentage = parseInt(percentageMatch[1]);
+    // Extract percentages with context
+    const percentageMatches = rule.match(/(\d+)\s*%/g);
+    if (percentageMatches) {
+      parameters.percentages = percentageMatches.map(m => parseInt(m));
+      parameters.primaryPercentage = parameters.percentages[0];
     }
-    
-    // Extract word/character counts
-    const countMatch = rule.match(/(\d+)\s*(words?|characters?)/i);
-    if (countMatch) {
-      parameters.count = parseInt(countMatch[1]);
-      parameters.unit = countMatch[2].toLowerCase();
+
+    // Extract word/character/sentence counts
+    const countMatches = rule.matchAll(/(\d+)\s*(words?|characters?|sentences?)/gi);
+    for (const match of countMatches) {
+      const count = parseInt(match[1]);
+      const unit = match[2].toLowerCase();
+      parameters[`${unit}Count`] = count;
     }
-    
+
+    // Extract comparison operators
+    const comparisonPatterns = [
+      { pattern: /no more than|less than|under|below/, operator: 'lte' },
+      { pattern: /more than|greater than|above|over/, operator: 'gte' },
+      { pattern: /exactly|precisely/, operator: 'eq' },
+      { pattern: /approximately|around|about/, operator: 'approx' }
+    ];
+
+    for (const { pattern, operator } of comparisonPatterns) {
+      if (pattern.test(rule.toLowerCase())) {
+        parameters.comparisonOperator = operator;
+        break;
+      }
+    }
+
+    // Extract scope indicators
+    const scopePatterns = [
+      { pattern: /entire|whole|complete|full/, scope: 'document' },
+      { pattern: /paragraph|section/, scope: 'paragraph' },
+      { pattern: /sentence/, scope: 'sentence' },
+      { pattern: /word|phrase/, scope: 'word' }
+    ];
+
+    for (const { pattern, scope } of scopePatterns) {
+      if (pattern.test(rule.toLowerCase())) {
+        parameters.scope = scope;
+        break;
+      }
+    }
+
+    // Extract priority/urgency indicators
+    const priorityPatterns = [
+      { pattern: /critical|essential|vital|must/, priority: 'high' },
+      { pattern: /important|should|recommended/, priority: 'medium' },
+      { pattern: /optional|consider|might/, priority: 'low' }
+    ];
+
+    for (const { pattern, priority } of priorityPatterns) {
+      if (pattern.test(rule.toLowerCase())) {
+        parameters.priority = priority;
+        break;
+      }
+    }
+
     return parameters;
+  }
+
+  private extractContext(rule: string): Record<string, any> {
+    const context: Record<string, any> = {};
+    const lowerRule = rule.toLowerCase();
+
+    // Document type context
+    const documentTypes = [
+      'academic', 'business', 'creative', 'technical', 'legal', 
+      'marketing', 'journalistic', 'scientific'
+    ];
+
+    for (const type of documentTypes) {
+      if (lowerRule.includes(type)) {
+        context.documentType = type;
+        break;
+      }
+    }
+
+    // Audience context
+    const audienceTypes = [
+      'professional', 'academic', 'general', 'technical', 'casual', 
+      'formal', 'informal', 'expert', 'beginner'
+    ];
+
+    for (const audience of audienceTypes) {
+      if (lowerRule.includes(audience)) {
+        context.audience = audience;
+        break;
+      }
+    }
+
+    // Style context
+    const styleTypes = [
+      'formal', 'informal', 'conversational', 'authoritative', 
+      'persuasive', 'descriptive', 'narrative', 'expository'
+    ];
+
+    for (const style of styleTypes) {
+      if (lowerRule.includes(style)) {
+        context.style = style;
+        break;
+      }
+    }
+
+    // Language features to preserve/modify
+    const languageFeatures = [
+      'terminology', 'jargon', 'idioms', 'metaphors', 'analogies',
+      'voice', 'tone', 'perspective', 'tense', 'person'
+    ];
+
+    context.languageFeatures = [];
+    for (const feature of languageFeatures) {
+      if (lowerRule.includes(feature)) {
+        context.languageFeatures.push(feature);
+      }
+    }
+
+    return context;
+  }
+
+  private extractConstraintHints(rule: string): string[] {
+    const hints: string[] = [];
+    const lowerRule = rule.toLowerCase();
+
+    // Constraint type hints
+    const constraintPatterns = [
+      { pattern: /grammar|spelling|punctuation/, hint: 'grammatical' },
+      { pattern: /style|flow|readability/, hint: 'stylistic' },
+      { pattern: /length|word count|character count/, hint: 'length-based' },
+      { pattern: /tone|voice|perspective/, hint: 'tonal' },
+      { pattern: /structure|organization|format/, hint: 'structural' },
+      { pattern: /content|meaning|intent/, hint: 'semantic' },
+      { pattern: /consistency|uniformity/, hint: 'consistency' },
+      { pattern: /clarity|comprehension/, hint: 'clarity' }
+    ];
+
+    for (const { pattern, hint } of constraintPatterns) {
+      if (pattern.test(lowerRule)) {
+        hints.push(hint);
+      }
+    }
+
+    // Processing approach hints
+    if (lowerRule.includes('minimal') || lowerRule.includes('conservative')) {
+      hints.push('conservative-editing');
+    }
+
+    if (lowerRule.includes('aggressive') || lowerRule.includes('extensive')) {
+      hints.push('extensive-editing');
+    }
+
+    if (lowerRule.includes('preserve') || lowerRule.includes('maintain')) {
+      hints.push('preservation-focused');
+    }
+
+    return hints;
+  }
+
+  private hasQuantifiers(rule: string): boolean {
+    return this.QUANTIFIER_PATTERNS.some(pattern => pattern.test(rule));
+  }
+
+  // Advanced parsing methods for specific domains
+
+  parseGrammarRule(rule: string): Record<string, any> {
+    const grammarAspects = {
+      'subject-verb agreement': /subject.?verb|agreement/i,
+      'tense consistency': /tense|past|present|future/i,
+      'pronoun reference': /pronoun|reference|antecedent/i,
+      'modifier placement': /modifier|dangling|misplaced/i,
+      'parallel structure': /parallel|series|list/i
+    };
+
+    const detected: Record<string, boolean> = {};
+    for (const [aspect, pattern] of Object.entries(grammarAspects)) {
+      detected[aspect] = pattern.test(rule);
+    }
+
+    return detected;
+  }
+
+  parseStyleRule(rule: string): Record<string, any> {
+    const styleAspects = {
+      'sentence variety': /sentence.*variety|varied.*sentence/i,
+      'word choice': /word.*choice|vocabulary|diction/i,
+      'transitions': /transition|flow|connection/i,
+      'conciseness': /concise|wordiness|brevity/i,
+      'active voice': /active.*voice|passive.*voice/i,
+      'clarity': /clear|clarity|comprehension/i
+    };
+
+    const detected: Record<string, boolean> = {};
+    for (const [aspect, pattern] of Object.entries(styleAspects)) {
+      detected[aspect] = pattern.test(rule);
+    }
+
+    return detected;
+  }
+
+  parseStructuralRule(rule: string): Record<string, any> {
+    const structuralAspects = {
+      'paragraph structure': /paragraph.*structure|topic.*sentence/i,
+      'logical flow': /logical.*flow|sequence|order/i,
+      'argumentation': /argument|evidence|support|reasoning/i,
+      'introduction': /introduction|opening|hook/i,
+      'conclusion': /conclusion|ending|summary/i,
+      'headings': /heading|title|section/i
+    };
+
+    const detected: Record<string, boolean> = {};
+    for (const [aspect, pattern] of Object.entries(structuralAspects)) {
+      detected[aspect] = pattern.test(rule);
+    }
+
+    return detected;
   }
 }

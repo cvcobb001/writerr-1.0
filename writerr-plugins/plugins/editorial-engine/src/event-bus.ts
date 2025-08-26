@@ -1,4 +1,5 @@
 // Event Bus Implementation for Editorial Engine
+import { WritterrEventType, WritterrEventData, WritterrEventMap } from '../../../shared/types';
 
 export interface WritterrEventBus {
   emit<T = any>(event: string, data: T): void;
@@ -6,15 +7,35 @@ export interface WritterrEventBus {
   off(event: string, handler: Function): void;
   once<T = any>(event: string, handler: (data: T) => void): void;
   cleanup(): void;
+  setDebugMode(enabled: boolean): void;
+  getEventCounts(): Record<string, number>;
+  getAllEvents(): string[];
+  hasListeners(event: string): boolean;
+  getListenerCount(event: string): number;
+  removeAllListeners(event?: string): void;
+  resetCircuitBreaker(event: string): void;
+  getCircuitBreakerStatus(): Record<string, { errorCount: number; disabled: boolean }>;
+  setCircuitBreakerThreshold(threshold: number): void;
 }
 
 export class WritterrEventBus implements WritterrEventBus {
   private handlers: Map<string, Set<Function>> = new Map();
   private debugMode: boolean = false;
+  private errorCounts: Map<string, number> = new Map();
+  private circuitBreakerThreshold: number = 5;
+  private disabledHandlers: Set<string> = new Set();
 
   emit<T = any>(event: string, data: T): void {
     if (this.debugMode) {
       console.debug(`[WritterrEventBus] Emitting: ${event}`, data);
+    }
+
+    // Check if event is disabled due to circuit breaker
+    if (this.disabledHandlers.has(event)) {
+      if (this.debugMode) {
+        console.warn(`[WritterrEventBus] Event ${event} is disabled due to circuit breaker`);
+      }
+      return;
     }
 
     const eventHandlers = this.handlers.get(event);
@@ -24,10 +45,18 @@ export class WritterrEventBus implements WritterrEventBus {
       
       for (const handler of handlersArray) {
         try {
-          handler(data);
+          // Isolate each handler execution
+          setTimeout(() => {
+            try {
+              handler(data);
+              // Reset error count on successful execution
+              this.resetErrorCount(event);
+            } catch (error) {
+              this.handleHandlerError(event, error, handler);
+            }
+          }, 0);
         } catch (error) {
-          console.error(`[WritterrEventBus] Error in handler for ${event}:`, error);
-          // Don't let one handler failure break others
+          this.handleHandlerError(event, error, handler);
         }
       }
     }
@@ -108,6 +137,65 @@ export class WritterrEventBus implements WritterrEventBus {
     } else {
       this.handlers.clear();
     }
+  }
+
+  // Error isolation and circuit breaker methods
+  private handleHandlerError(event: string, error: any, handler: Function): void {
+    console.error(`[WritterrEventBus] Error in handler for ${event}:`, error);
+    
+    // Increment error count
+    const currentCount = this.errorCounts.get(event) || 0;
+    const newCount = currentCount + 1;
+    this.errorCounts.set(event, newCount);
+    
+    // Check circuit breaker threshold
+    if (newCount >= this.circuitBreakerThreshold) {
+      this.disabledHandlers.add(event);
+      console.warn(`[WritterrEventBus] Event ${event} disabled due to repeated failures (${newCount} errors)`);
+      
+      // Emit system event about circuit breaker activation
+      if (event !== 'system-error') { // Prevent infinite loops
+        this.emit('system-error', {
+          type: 'circuit-breaker-activated',
+          event,
+          errorCount: newCount,
+          timestamp: Date.now()
+        });
+      }
+    }
+  }
+
+  private resetErrorCount(event: string): void {
+    if (this.errorCounts.has(event)) {
+      this.errorCounts.delete(event);
+    }
+  }
+
+  // Circuit breaker management
+  resetCircuitBreaker(event: string): void {
+    this.disabledHandlers.delete(event);
+    this.errorCounts.delete(event);
+    
+    if (this.debugMode) {
+      console.debug(`[WritterrEventBus] Circuit breaker reset for event: ${event}`);
+    }
+  }
+
+  getCircuitBreakerStatus(): Record<string, { errorCount: number; disabled: boolean }> {
+    const status: Record<string, { errorCount: number; disabled: boolean }> = {};
+    
+    for (const [event, count] of this.errorCounts) {
+      status[event] = {
+        errorCount: count,
+        disabled: this.disabledHandlers.has(event)
+      };
+    }
+    
+    return status;
+  }
+
+  setCircuitBreakerThreshold(threshold: number): void {
+    this.circuitBreakerThreshold = Math.max(1, threshold);
   }
 }
 
