@@ -3,7 +3,6 @@ import { WriterrlChatSettingsTab } from './settings';
 import { ChatView, VIEW_TYPE_CHAT } from './chat-view';
 import { ChatSession, ChatMessage, AIProvider, WriterrlGlobalAPI, IntakePayload } from '@shared/types';
 import { generateId } from '@shared/utils';
-import { AIProviderManager } from './ai-provider-manager';
 
 // Enhanced types for Editorial Engine integration
 interface ParsedMessage {
@@ -48,16 +47,20 @@ const DEFAULT_SETTINGS: WriterrlChatSettings = {
   theme: 'default'
 };
 
+// Build verification system
+const BUILD_TIMESTAMP = Date.now();
+const BUILD_VERSION = "v2.0.1-fix-ai-providers";
+console.log(`🔧 Writerr Chat Build: ${BUILD_VERSION} (${new Date(BUILD_TIMESTAMP).toISOString()})`);
+
 export default class WriterrlChatPlugin extends Plugin {
   settings: WriterrlChatSettings;
-  aiProviderManager: AIProviderManager;
   currentSession: ChatSession | null = null;
   chatSessions: Map<string, ChatSession> = new Map();
 
   async onload() {
+    console.log(`🚀 LOADING Writerr Chat ${BUILD_VERSION} - Build: ${new Date(BUILD_TIMESTAMP).toISOString()}`);
+    
     await this.loadSettings();
-
-    this.aiProviderManager = new AIProviderManager(this.settings);
 
     // Force load CSS styles
     this.loadCustomStyles();
@@ -85,7 +88,7 @@ export default class WriterrlChatPlugin extends Plugin {
     // Listen for Editorial Engine availability
     this.listenForEditorialEngine();
 
-    console.log('Writerr Chat plugin loaded');
+    console.log(`✅ LOADED Writerr Chat ${BUILD_VERSION} successfully`);
   }
 
   private loadCustomStyles(): void {
@@ -342,9 +345,7 @@ export default class WriterrlChatPlugin extends Plugin {
 
   async saveSettings() {
     await this.saveData(this.settings);
-    if (this.aiProviderManager) {
-      this.aiProviderManager.updateSettings(this.settings);
-    }
+    // Note: Settings now used directly with AI Providers plugin
   }
 
   private initializeGlobalAPI() {
@@ -650,24 +651,102 @@ export default class WriterrlChatPlugin extends Plugin {
   }
 
   private async processWithAIProvider(parsedMessage: ParsedMessage, context?: string): Promise<void> {
-    // Standard AI provider processing for general chat
-    const response = await this.aiProviderManager.sendMessage(
-      this.currentSession!.messages,
-      context
-    );
+    console.log(`🎯 [${BUILD_VERSION}] processWithAIProvider ENTRY - Using provider OBJECT method`);
+    
+    // Get AI Providers plugin and SDK - use the same pattern as the toolbar
+    const aiProvidersPlugin = (this.app as any).plugins?.plugins?.['ai-providers'];
+    if (!aiProvidersPlugin) {
+      throw new Error('AI Providers plugin not found. Please install and enable the AI Providers plugin.');
+    }
 
-    const assistantMessage: ChatMessage = {
-      id: generateId(),
-      role: 'assistant',
-      content: response,
-      timestamp: Date.now(),
-      metadata: {
-        provider: this.settings.provider,
-        model: this.settings.model
+    // Access the aiProviders SDK object (same as toolbar)
+    const aiProviders = aiProvidersPlugin.aiProviders;
+    if (!aiProviders) {
+      throw new Error('AI Providers SDK not available.');
+    }
+
+    // Get the selected model from toolbar (if available)
+    const chatLeaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_CHAT)[0];
+    let selectedProvider = this.settings.defaultProvider;
+    let selectedModel = 'gpt-4'; // fallback
+    let providerObject = null; // Store the actual provider object
+    
+    if (chatLeaf && chatLeaf.view instanceof ChatView) {
+      // Try to get selected model from chat view toolbar
+      const toolbar = (chatLeaf.view as any).chatToolbar;
+      if (toolbar) {
+        const modelSelection = toolbar.getSelectedModel();
+        if (modelSelection) {
+          selectedProvider = modelSelection.provider;
+          selectedModel = modelSelection.model;
+        }
       }
-    };
+    }
 
-    this.currentSession!.messages.push(assistantMessage);
+    // Find the actual provider object from the providers array
+    if (aiProviders.providers && Array.isArray(aiProviders.providers)) {
+      providerObject = aiProviders.providers.find((p: any) => 
+        p.id === selectedProvider || p.name === selectedProvider || p.type === selectedProvider
+      );
+      
+      if (providerObject) {
+        console.log(`🎯 [${BUILD_VERSION}] Found provider OBJECT:`, providerObject);
+      } else {
+        console.warn(`🎯 [${BUILD_VERSION}] Provider object not found for: ${selectedProvider}`);
+        // Fallback to first available provider
+        providerObject = aiProviders.providers[0];
+        console.log(`🎯 [${BUILD_VERSION}] Using fallback provider OBJECT:`, providerObject);
+      }
+    }
+
+    if (!providerObject) {
+      throw new Error('No providers available in AI Providers plugin.');
+    }
+
+    // Add context to the prompt if available
+    let prompt = parsedMessage.originalContent;
+    if (context) {
+      prompt = `Context from document:\n${context}\n\nUser request: ${prompt}`;
+    }
+
+    try {
+      console.log(`🎯 [${BUILD_VERSION}] EXECUTE with provider OBJECT (not string):`, {
+        provider: providerObject,
+        model: selectedModel,
+        buildVersion: BUILD_VERSION
+      });
+      
+      // Use AI Providers SDK with the actual provider object
+      const response = await aiProviders.execute({
+        provider: providerObject, // Pass the actual provider object
+        prompt: prompt,
+        model: selectedModel, // Also pass the specific model
+        onProgress: (chunk: string, full: string) => {
+          console.log(`🎯 [${BUILD_VERSION}] Streaming chunk:`, chunk.length, 'chars');
+        }
+      });
+
+      console.log(`🎯 [${BUILD_VERSION}] AI response SUCCESS:`, response?.length || 0, 'characters');
+
+      const assistantMessage: ChatMessage = {
+        id: generateId(),
+        role: 'assistant',
+        content: response,
+        timestamp: Date.now(),
+        metadata: {
+          provider: selectedProvider,
+          providerType: providerObject.type || 'unknown',
+          model: selectedModel,
+          aiProvidersUsed: true,
+          buildVersion: BUILD_VERSION
+        }
+      };
+
+      this.currentSession!.messages.push(assistantMessage);
+    } catch (error) {
+      console.error(`🎯 [${BUILD_VERSION}] AI Providers ERROR:`, error);
+      throw new Error(`AI processing failed: ${error.message}`);
+    }
   }
 
   private formatEditorialEngineResponse(result: any, parsedMessage: ParsedMessage): string {

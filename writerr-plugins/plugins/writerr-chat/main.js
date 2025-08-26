@@ -1548,29 +1548,212 @@ var ChatToolbar = class extends BaseComponent {
   }
   // Context button removed - belongs in context area header, not toolbar
   populateModelOptions() {
-    const providers = {
-      "OpenAI": {
-        "GPT-4": ["gpt-4", "gpt-4-turbo", "gpt-4-turbo-preview"],
-        "GPT-3.5": ["gpt-3.5-turbo", "gpt-3.5-turbo-16k"]
-      },
-      "Anthropic": {
-        "Claude-3": ["claude-3-opus", "claude-3-sonnet", "claude-3-haiku"],
-        "Claude-2": ["claude-2", "claude-2.1"]
-      },
-      "Google": {
-        "Gemini": ["gemini-pro", "gemini-pro-vision"]
-      }
-    };
-    this.modelSelect.createEl("option", { value: "", text: "Select Model" });
-    for (const [provider, families] of Object.entries(providers)) {
-      const providerGroup = this.modelSelect.createEl("optgroup", { label: provider });
-      for (const [family, models] of Object.entries(families)) {
-        const familyGroup = this.modelSelect.createEl("optgroup", { label: `  ${family}` });
-        models.forEach((model) => {
-          familyGroup.createEl("option", { value: model, text: `    ${model}` });
-        });
-      }
+    var _a;
+    this.modelSelect.innerHTML = "";
+    const app = window.app;
+    const plugins = (_a = app == null ? void 0 : app.plugins) == null ? void 0 : _a.plugins;
+    const aiProvidersPlugin = plugins == null ? void 0 : plugins["ai-providers"];
+    if (!aiProvidersPlugin) {
+      console.log("AI Providers plugin not found");
+      this.modelSelect.createEl("option", {
+        value: "",
+        text: "AI Providers plugin not found"
+      });
+      return;
     }
+    const aiProviders = aiProvidersPlugin.aiProviders;
+    if (!aiProviders) {
+      console.log("AI Providers SDK not available on plugin object");
+      this.modelSelect.createEl("option", {
+        value: "",
+        text: "AI Providers SDK not available"
+      });
+      return;
+    }
+    console.log("\u2705 Found AI Providers SDK:", aiProviders);
+    console.log("\u{1F4CB} AI Providers SDK methods:", Object.keys(aiProviders));
+    if (typeof aiProviders.execute === "function") {
+      console.log("\u2705 AI Providers SDK has execute method");
+    } else {
+      console.log("\u274C AI Providers SDK missing execute method");
+    }
+    try {
+      const availableProviders = this.getAvailableProvidersAndModels(aiProviders);
+      if (Object.keys(availableProviders).length === 0) {
+        console.log("No providers configured in AI Providers plugin");
+        this.modelSelect.createEl("option", {
+          value: "",
+          text: "No models configured"
+        });
+        return;
+      }
+      for (const [provider, families] of Object.entries(availableProviders)) {
+        const providerGroup = this.modelSelect.createEl("optgroup", { label: provider });
+        for (const [family, models] of Object.entries(families)) {
+          const familyGroup = this.modelSelect.createEl("optgroup", { label: `  ${family}` });
+          models.forEach((model) => {
+            familyGroup.createEl("option", {
+              value: `${provider}:${model}`,
+              // Store provider:model for routing
+              text: `    ${model}`
+              // Display only model name with indent
+            });
+          });
+        }
+      }
+      console.log("Successfully populated model dropdown with providers");
+    } catch (error) {
+      console.error("Error populating model options:", error);
+      this.modelSelect.createEl("option", {
+        value: "",
+        text: "Error loading models"
+      });
+    }
+  }
+  getAvailableProvidersAndModels(aiProviders) {
+    var _a;
+    try {
+      console.log("\u{1F50D} AI Providers plugin object:", aiProviders);
+      console.log("\u{1F50D} Available methods/properties:", Object.keys(aiProviders));
+      console.log("\u{1F50D} Plugin constructor:", (_a = aiProviders.constructor) == null ? void 0 : _a.name);
+      if (aiProviders.settings) {
+        console.log("\u{1F4CB} Plugin settings:", aiProviders.settings);
+      }
+      let providers = [];
+      const possibleMethods = [
+        "getProviders",
+        "getAvailableProviders",
+        "listProviders",
+        "providers",
+        "getConfiguredProviders"
+      ];
+      for (const method of possibleMethods) {
+        if (typeof aiProviders[method] === "function") {
+          console.log(`\u{1F4DE} Trying method: ${method}()`);
+          try {
+            providers = aiProviders[method]();
+            console.log(`\u2705 ${method}() returned:`, providers);
+            break;
+          } catch (err) {
+            console.log(`\u274C ${method}() failed:`, err);
+          }
+        } else if (aiProviders[method] !== void 0) {
+          console.log(`\u{1F4CB} Found property: ${method} =`, aiProviders[method]);
+          providers = Array.isArray(aiProviders[method]) ? aiProviders[method] : [aiProviders[method]];
+          break;
+        }
+      }
+      if (providers.length === 0 && aiProviders.settings) {
+        const settings = aiProviders.settings;
+        if (settings.providers && Array.isArray(settings.providers)) {
+          providers = settings.providers;
+          console.log("\u{1F4CB} Using providers from settings:", providers);
+        } else if (settings.provider) {
+          providers = [settings.provider];
+          console.log("\u{1F4CB} Using single provider from settings:", providers);
+        }
+      }
+      if (providers.length === 0) {
+        console.log("\u274C No providers found in AI Providers plugin");
+        return {};
+      }
+      const organized = {};
+      for (const provider of providers) {
+        console.log("\u{1F527} Processing provider:", provider);
+        const providerId = provider.id || provider.name || provider.type || "unknown";
+        const providerName = this.getProviderDisplayName(providerId);
+        const models = provider.models || provider.availableModels || provider.supportedModels || [];
+        console.log(`\u{1F4CB} Models for ${providerId}:`, models);
+        if (models.length > 0) {
+          const families = this.organizeModelsByFamily(models);
+          if (Object.keys(families).length > 0) {
+            organized[providerName] = families;
+            console.log(`\u2705 Added provider ${providerName} with families:`, families);
+          }
+        }
+      }
+      console.log("\u{1F3AF} Final organized providers:", organized);
+      return organized;
+    } catch (error) {
+      console.error("\u274C Error getting providers from AI Providers plugin:", error);
+      return {};
+    }
+  }
+  getProviderDisplayName(providerId) {
+    const displayNames = {
+      "openai": "OpenAI",
+      "anthropic": "Anthropic",
+      "google": "Google",
+      "ollama": "Local/Ollama",
+      "azure": "Azure OpenAI"
+    };
+    return displayNames[providerId.toLowerCase()] || providerId;
+  }
+  organizeModelsByFamily(models) {
+    const families = {};
+    for (const model of models) {
+      let family = "Other";
+      const modelLower = model.toLowerCase();
+      if (modelLower.includes("gpt-4o")) {
+        family = "GPT-4o";
+      } else if (modelLower.includes("gpt-4")) {
+        family = "GPT-4";
+      } else if (modelLower.includes("gpt-3.5")) {
+        family = "GPT-3.5";
+      } else if (modelLower.includes("claude-3-5")) {
+        family = "Claude 3.5";
+      } else if (modelLower.includes("claude-3")) {
+        family = "Claude 3";
+      } else if (modelLower.includes("claude-2")) {
+        family = "Claude 2";
+      } else if (modelLower.includes("claude")) {
+        family = "Claude";
+      } else if (modelLower.includes("gemini-pro")) {
+        family = "Gemini Pro";
+      } else if (modelLower.includes("gemini")) {
+        family = "Gemini";
+      } else if (modelLower.includes("llama-3")) {
+        family = "Llama 3";
+      } else if (modelLower.includes("llama")) {
+        family = "Llama";
+      } else if (modelLower.includes("mistral")) {
+        family = "Mistral";
+      } else if (modelLower.includes("codellama")) {
+        family = "Code Llama";
+      } else if (modelLower.includes("phi")) {
+        family = "Phi";
+      } else if (modelLower.includes("qwen")) {
+        family = "Qwen";
+      } else if (modelLower.includes("mixtral")) {
+        family = "Mixtral";
+      }
+      if (!families[family]) {
+        families[family] = [];
+      }
+      families[family].push(model);
+    }
+    return families;
+  }
+  refreshModelOptions() {
+    this.populateModelOptions();
+  }
+  setSelectedModel(providerAndModel) {
+    this.modelSelect.value = providerAndModel;
+  }
+  getSelectedModel() {
+    const value = this.modelSelect.value;
+    if (!value || !value.includes(":")) {
+      return null;
+    }
+    const [provider, model] = value.split(":", 2);
+    return { provider, model };
+  }
+  refreshAvailableModels() {
+    this.refreshModelOptions();
+  }
+  notifyModelProviderReady() {
+    var _a, _b;
+    (_b = (_a = this.events).onModelProviderReady) == null ? void 0 : _b.call(_a);
   }
   populatePromptOptions() {
     this.promptSelect.createEl("option", { value: "", text: "Prompts" });
@@ -2583,143 +2766,6 @@ var ChatView = class extends import_obsidian4.ItemView {
 
 // plugins/writerr-chat/src/main.ts
 init_utils();
-
-// plugins/writerr-chat/src/ai-provider-manager.ts
-var AIProviderManager = class {
-  constructor(settings) {
-    this.settings = settings;
-  }
-  updateSettings(settings) {
-    this.settings = settings;
-  }
-  async sendMessage(messages, context) {
-    var _a, _b;
-    const provider = this.getProvider(this.settings.defaultProvider);
-    if (!provider) {
-      throw new Error("No AI provider configured");
-    }
-    if (!provider.apiKey) {
-      throw new Error(`API key not configured for ${provider.name}`);
-    }
-    const requestMessages = this.buildRequestMessages(messages, context);
-    try {
-      if (provider.id === "openai" || ((_a = provider.baseUrl) == null ? void 0 : _a.includes("openai"))) {
-        return await this.sendOpenAIMessage(provider, requestMessages);
-      } else if (provider.id === "anthropic" || ((_b = provider.baseUrl) == null ? void 0 : _b.includes("anthropic"))) {
-        return await this.sendAnthropicMessage(provider, requestMessages);
-      } else {
-        return await this.sendOpenAIMessage(provider, requestMessages);
-      }
-    } catch (error) {
-      console.error("AI Provider Error:", error);
-      throw new Error(`AI Provider failed: ${error.message}`);
-    }
-  }
-  buildRequestMessages(messages, context) {
-    const requestMessages = [];
-    if (context) {
-      requestMessages.push({
-        role: "system",
-        content: `Here's the current document context:
-
-${context}
-
-Please use this context to inform your responses.`
-      });
-    }
-    for (const message of messages) {
-      if (message.role !== "system") {
-        requestMessages.push({
-          role: message.role,
-          content: message.content
-        });
-      }
-    }
-    return requestMessages;
-  }
-  async sendOpenAIMessage(provider, messages) {
-    const baseUrl = provider.baseUrl || "https://api.openai.com/v1";
-    const url = `${baseUrl}/chat/completions`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${provider.apiKey}`
-      },
-      body: JSON.stringify({
-        model: provider.model,
-        messages,
-        max_tokens: this.settings.maxTokens,
-        temperature: this.settings.temperature,
-        stream: false
-      })
-    });
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`HTTP ${response.status}: ${error}`);
-    }
-    const data = await response.json();
-    if (!data.choices || !data.choices[0] || !data.choices[0].message) {
-      throw new Error("Invalid response format from AI provider");
-    }
-    return data.choices[0].message.content;
-  }
-  async sendAnthropicMessage(provider, messages) {
-    const baseUrl = provider.baseUrl || "https://api.anthropic.com";
-    const url = `${baseUrl}/v1/messages`;
-    const systemMessages = messages.filter((m) => m.role === "system");
-    const conversationMessages = messages.filter((m) => m.role !== "system");
-    const systemPrompt = systemMessages.map((m) => m.content).join("\n\n");
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": provider.apiKey,
-        "anthropic-version": "2023-06-01"
-      },
-      body: JSON.stringify({
-        model: provider.model,
-        max_tokens: this.settings.maxTokens,
-        temperature: this.settings.temperature,
-        system: systemPrompt,
-        messages: conversationMessages
-      })
-    });
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`HTTP ${response.status}: ${error}`);
-    }
-    const data = await response.json();
-    if (!data.content || !data.content[0] || !data.content[0].text) {
-      throw new Error("Invalid response format from Anthropic API");
-    }
-    return data.content[0].text;
-  }
-  getProvider(providerId) {
-    return this.settings.providers.find((p) => p.id === providerId);
-  }
-  getProviders() {
-    return [...this.settings.providers];
-  }
-  validateProvider(provider) {
-    if (!provider.name || !provider.model) {
-      return { valid: false, error: "Provider name and model are required" };
-    }
-    if (!provider.apiKey) {
-      return { valid: false, error: "API key is required" };
-    }
-    if (provider.baseUrl) {
-      try {
-        new URL(provider.baseUrl);
-      } catch (e) {
-        return { valid: false, error: "Invalid base URL format" };
-      }
-    }
-    return { valid: true };
-  }
-};
-
-// plugins/writerr-chat/src/main.ts
 var DEFAULT_SETTINGS = {
   defaultProvider: "openai",
   providers: [
@@ -2740,6 +2786,9 @@ var DEFAULT_SETTINGS = {
   showTimestamps: true,
   theme: "default"
 };
+var BUILD_TIMESTAMP = Date.now();
+var BUILD_VERSION = "v2.0.1-fix-ai-providers";
+console.log(`\u{1F527} Writerr Chat Build: ${BUILD_VERSION} (${new Date(BUILD_TIMESTAMP).toISOString()})`);
 var WriterrlChatPlugin = class extends import_obsidian5.Plugin {
   constructor() {
     super(...arguments);
@@ -2747,8 +2796,8 @@ var WriterrlChatPlugin = class extends import_obsidian5.Plugin {
     this.chatSessions = /* @__PURE__ */ new Map();
   }
   async onload() {
+    console.log(`\u{1F680} LOADING Writerr Chat ${BUILD_VERSION} - Build: ${new Date(BUILD_TIMESTAMP).toISOString()}`);
     await this.loadSettings();
-    this.aiProviderManager = new AIProviderManager(this.settings);
     this.loadCustomStyles();
     this.initializeGlobalAPI();
     this.registerView(VIEW_TYPE_CHAT, (leaf) => new ChatView(leaf, this));
@@ -2759,7 +2808,7 @@ var WriterrlChatPlugin = class extends import_obsidian5.Plugin {
     this.addSettingTab(new WriterrlChatSettingsTab(this.app, this));
     await this.loadChatSessions();
     this.listenForEditorialEngine();
-    console.log("Writerr Chat plugin loaded");
+    console.log(`\u2705 LOADED Writerr Chat ${BUILD_VERSION} successfully`);
   }
   loadCustomStyles() {
     const styles = `
@@ -3009,9 +3058,6 @@ var WriterrlChatPlugin = class extends import_obsidian5.Plugin {
   }
   async saveSettings() {
     await this.saveData(this.settings);
-    if (this.aiProviderManager) {
-      this.aiProviderManager.updateSettings(this.settings);
-    }
   }
   initializeGlobalAPI() {
     if (!window.WriterrlAPI) {
@@ -3256,21 +3302,87 @@ What would you like to know about this text?`;
     }
   }
   async processWithAIProvider(parsedMessage, context) {
-    const response = await this.aiProviderManager.sendMessage(
-      this.currentSession.messages,
-      context
-    );
-    const assistantMessage = {
-      id: generateId(),
-      role: "assistant",
-      content: response,
-      timestamp: Date.now(),
-      metadata: {
-        provider: this.settings.provider,
-        model: this.settings.model
+    var _a, _b;
+    console.log(`\u{1F3AF} [${BUILD_VERSION}] processWithAIProvider ENTRY - Using provider OBJECT method`);
+    const aiProvidersPlugin = (_b = (_a = this.app.plugins) == null ? void 0 : _a.plugins) == null ? void 0 : _b["ai-providers"];
+    if (!aiProvidersPlugin) {
+      throw new Error("AI Providers plugin not found. Please install and enable the AI Providers plugin.");
+    }
+    const aiProviders = aiProvidersPlugin.aiProviders;
+    if (!aiProviders) {
+      throw new Error("AI Providers SDK not available.");
+    }
+    const chatLeaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_CHAT)[0];
+    let selectedProvider = this.settings.defaultProvider;
+    let selectedModel = "gpt-4";
+    let providerObject = null;
+    if (chatLeaf && chatLeaf.view instanceof ChatView) {
+      const toolbar = chatLeaf.view.chatToolbar;
+      if (toolbar) {
+        const modelSelection = toolbar.getSelectedModel();
+        if (modelSelection) {
+          selectedProvider = modelSelection.provider;
+          selectedModel = modelSelection.model;
+        }
       }
-    };
-    this.currentSession.messages.push(assistantMessage);
+    }
+    if (aiProviders.providers && Array.isArray(aiProviders.providers)) {
+      providerObject = aiProviders.providers.find(
+        (p) => p.id === selectedProvider || p.name === selectedProvider || p.type === selectedProvider
+      );
+      if (providerObject) {
+        console.log(`\u{1F3AF} [${BUILD_VERSION}] Found provider OBJECT:`, providerObject);
+      } else {
+        console.warn(`\u{1F3AF} [${BUILD_VERSION}] Provider object not found for: ${selectedProvider}`);
+        providerObject = aiProviders.providers[0];
+        console.log(`\u{1F3AF} [${BUILD_VERSION}] Using fallback provider OBJECT:`, providerObject);
+      }
+    }
+    if (!providerObject) {
+      throw new Error("No providers available in AI Providers plugin.");
+    }
+    let prompt = parsedMessage.originalContent;
+    if (context) {
+      prompt = `Context from document:
+${context}
+
+User request: ${prompt}`;
+    }
+    try {
+      console.log(`\u{1F3AF} [${BUILD_VERSION}] EXECUTE with provider OBJECT (not string):`, {
+        provider: providerObject,
+        model: selectedModel,
+        buildVersion: BUILD_VERSION
+      });
+      const response = await aiProviders.execute({
+        provider: providerObject,
+        // Pass the actual provider object
+        prompt,
+        model: selectedModel,
+        // Also pass the specific model
+        onProgress: (chunk, full) => {
+          console.log(`\u{1F3AF} [${BUILD_VERSION}] Streaming chunk:`, chunk.length, "chars");
+        }
+      });
+      console.log(`\u{1F3AF} [${BUILD_VERSION}] AI response SUCCESS:`, (response == null ? void 0 : response.length) || 0, "characters");
+      const assistantMessage = {
+        id: generateId(),
+        role: "assistant",
+        content: response,
+        timestamp: Date.now(),
+        metadata: {
+          provider: selectedProvider,
+          providerType: providerObject.type || "unknown",
+          model: selectedModel,
+          aiProvidersUsed: true,
+          buildVersion: BUILD_VERSION
+        }
+      };
+      this.currentSession.messages.push(assistantMessage);
+    } catch (error) {
+      console.error(`\u{1F3AF} [${BUILD_VERSION}] AI Providers ERROR:`, error);
+      throw new Error(`AI processing failed: ${error.message}`);
+    }
   }
   formatEditorialEngineResponse(result, parsedMessage) {
     var _a, _b, _c;

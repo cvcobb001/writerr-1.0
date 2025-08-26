@@ -11,6 +11,7 @@ export interface ChatToolbarEvents {
   onClearChat: () => void;
   onModelChange: (model: string) => void;
   onPromptChange: (prompt: string) => void;
+  onModelProviderReady?: () => void;
 }
 
 export class ChatToolbar extends BaseComponent {
@@ -264,35 +265,263 @@ export class ChatToolbar extends BaseComponent {
   // Context button removed - belongs in context area header, not toolbar
 
   private populateModelOptions(): void {
-    // Nested provider structure
-    const providers = {
-      'OpenAI': {
-        'GPT-4': ['gpt-4', 'gpt-4-turbo', 'gpt-4-turbo-preview'],
-        'GPT-3.5': ['gpt-3.5-turbo', 'gpt-3.5-turbo-16k']
-      },
-      'Anthropic': {
-        'Claude-3': ['claude-3-opus', 'claude-3-sonnet', 'claude-3-haiku'],
-        'Claude-2': ['claude-2', 'claude-2.1']
-      },
-      'Google': {
-        'Gemini': ['gemini-pro', 'gemini-pro-vision']
-      }
-    };
+    // Clear existing options
+    this.modelSelect.innerHTML = '';
 
-    // Add default option
-    this.modelSelect.createEl('option', { value: '', text: 'Select Model' });
-
-    for (const [provider, families] of Object.entries(providers)) {
-      const providerGroup = this.modelSelect.createEl('optgroup', { label: provider });
-      
-      for (const [family, models] of Object.entries(families)) {
-        const familyGroup = this.modelSelect.createEl('optgroup', { label: `  ${family}` });
-        
-        models.forEach(model => {
-          familyGroup.createEl('option', { value: model, text: `    ${model}` });
+    // Try to get AI Providers plugin
+    const app = (window as any).app;
+    const plugins = app?.plugins?.plugins;
+    const aiProvidersPlugin = plugins?.['ai-providers'];
+    
+    if (!aiProvidersPlugin) {
+        console.log('AI Providers plugin not found');
+        this.modelSelect.createEl('option', { 
+          value: '', 
+          text: 'AI Providers plugin not found'
         });
-      }
+        return;
     }
+
+    // Get the actual aiProviders SDK object
+    const aiProviders = aiProvidersPlugin.aiProviders;
+    
+    if (!aiProviders) {
+        console.log('AI Providers SDK not available on plugin object');
+        this.modelSelect.createEl('option', { 
+          value: '', 
+          text: 'AI Providers SDK not available'
+        });
+        return;
+    }
+
+    console.log('✅ Found AI Providers SDK:', aiProviders);
+    console.log('📋 AI Providers SDK methods:', Object.keys(aiProviders));
+
+    // Check if this has the execute method we need
+    if (typeof aiProviders.execute === 'function') {
+        console.log('✅ AI Providers SDK has execute method');
+    } else {
+        console.log('❌ AI Providers SDK missing execute method');
+    }
+
+    try {
+        // Get available providers and models from AI Providers SDK
+        const availableProviders = this.getAvailableProvidersAndModels(aiProviders);
+        
+        if (Object.keys(availableProviders).length === 0) {
+            console.log('No providers configured in AI Providers plugin');
+            this.modelSelect.createEl('option', { 
+              value: '', 
+              text: 'No models configured' 
+            });
+            return;
+        }
+
+        // Build hierarchical structure
+        for (const [provider, families] of Object.entries(availableProviders)) {
+            const providerGroup = this.modelSelect.createEl('optgroup', { label: provider });
+            
+            for (const [family, models] of Object.entries(families)) {
+                const familyGroup = this.modelSelect.createEl('optgroup', { label: `  ${family}` });
+                
+                (models as string[]).forEach(model => {
+                    familyGroup.createEl('option', { 
+                      value: `${provider}:${model}`, // Store provider:model for routing
+                      text: `    ${model}` // Display only model name with indent
+                    });
+                });
+            }
+        }
+
+        console.log('Successfully populated model dropdown with providers');
+
+    } catch (error) {
+        console.error('Error populating model options:', error);
+        this.modelSelect.createEl('option', { 
+          value: '', 
+          text: 'Error loading models' 
+        });
+    }
+  }
+
+  private getAvailableProvidersAndModels(aiProviders: any): Record<string, Record<string, string[]>> {
+    try {
+        console.log('🔍 AI Providers plugin object:', aiProviders);
+        console.log('🔍 Available methods/properties:', Object.keys(aiProviders));
+        console.log('🔍 Plugin constructor:', aiProviders.constructor?.name);
+        
+        // Check for settings or configuration that might contain provider info
+        if (aiProviders.settings) {
+            console.log('📋 Plugin settings:', aiProviders.settings);
+        }
+        
+        // Try different possible API methods to get providers
+        let providers: any[] = [];
+        
+        const possibleMethods = [
+            'getProviders',
+            'getAvailableProviders', 
+            'listProviders',
+            'providers',
+            'getConfiguredProviders'
+        ];
+        
+        for (const method of possibleMethods) {
+            if (typeof aiProviders[method] === 'function') {
+                console.log(`📞 Trying method: ${method}()`);
+                try {
+                    providers = aiProviders[method]();
+                    console.log(`✅ ${method}() returned:`, providers);
+                    break;
+                } catch (err) {
+                    console.log(`❌ ${method}() failed:`, err);
+                }
+            } else if (aiProviders[method] !== undefined) {
+                console.log(`📋 Found property: ${method} =`, aiProviders[method]);
+                providers = Array.isArray(aiProviders[method]) ? aiProviders[method] : [aiProviders[method]];
+                break;
+            }
+        }
+        
+        // If no providers found through methods, try to extract from settings
+        if (providers.length === 0 && aiProviders.settings) {
+            const settings = aiProviders.settings;
+            if (settings.providers && Array.isArray(settings.providers)) {
+                providers = settings.providers;
+                console.log('📋 Using providers from settings:', providers);
+            } else if (settings.provider) {
+                providers = [settings.provider];
+                console.log('📋 Using single provider from settings:', providers);
+            }
+        }
+        
+        if (providers.length === 0) {
+            console.log('❌ No providers found in AI Providers plugin');
+            return {};
+        }
+        
+        const organized: Record<string, Record<string, string[]>> = {};
+        
+        for (const provider of providers) {
+            console.log('🔧 Processing provider:', provider);
+            
+            // Extract provider info - the structure might vary
+            const providerId = provider.id || provider.name || provider.type || 'unknown';
+            const providerName = this.getProviderDisplayName(providerId);
+            
+            // Try to get models from various possible properties
+            const models = provider.models || provider.availableModels || provider.supportedModels || [];
+            console.log(`📋 Models for ${providerId}:`, models);
+            
+            if (models.length > 0) {
+                const families = this.organizeModelsByFamily(models);
+                if (Object.keys(families).length > 0) {
+                    organized[providerName] = families;
+                    console.log(`✅ Added provider ${providerName} with families:`, families);
+                }
+            }
+        }
+        
+        console.log('🎯 Final organized providers:', organized);
+        return organized;
+        
+    } catch (error) {
+        console.error('❌ Error getting providers from AI Providers plugin:', error);
+        return {};
+    }
+}
+
+  private getProviderDisplayName(providerId: string): string {
+    const displayNames: Record<string, string> = {
+      'openai': 'OpenAI',
+      'anthropic': 'Anthropic', 
+      'google': 'Google',
+      'ollama': 'Local/Ollama',
+      'azure': 'Azure OpenAI'
+    };
+    
+    return displayNames[providerId.toLowerCase()] || providerId;
+  }
+
+  private organizeModelsByFamily(models: string[]): Record<string, string[]> {
+    const families: Record<string, string[]> = {};
+    
+    for (const model of models) {
+        let family = 'Other';
+        const modelLower = model.toLowerCase();
+        
+        // Organize models by family based on naming patterns
+        if (modelLower.includes('gpt-4o')) {
+            family = 'GPT-4o';
+        } else if (modelLower.includes('gpt-4')) {
+            family = 'GPT-4';
+        } else if (modelLower.includes('gpt-3.5')) {
+            family = 'GPT-3.5';
+        } else if (modelLower.includes('claude-3-5')) {
+            family = 'Claude 3.5';
+        } else if (modelLower.includes('claude-3')) {
+            family = 'Claude 3';
+        } else if (modelLower.includes('claude-2')) {
+            family = 'Claude 2';
+        } else if (modelLower.includes('claude')) {
+            family = 'Claude';
+        } else if (modelLower.includes('gemini-pro')) {
+            family = 'Gemini Pro';
+        } else if (modelLower.includes('gemini')) {
+            family = 'Gemini';
+        } else if (modelLower.includes('llama-3')) {
+            family = 'Llama 3';
+        } else if (modelLower.includes('llama')) {
+            family = 'Llama';
+        } else if (modelLower.includes('mistral')) {
+            family = 'Mistral';
+        } else if (modelLower.includes('codellama')) {
+            family = 'Code Llama';
+        } else if (modelLower.includes('phi')) {
+            family = 'Phi';
+        } else if (modelLower.includes('qwen')) {
+            family = 'Qwen';
+        } else if (modelLower.includes('mixtral')) {
+            family = 'Mixtral';
+        }
+        
+        if (!families[family]) {
+            families[family] = [];
+        }
+        families[family].push(model);
+    }
+    
+    return families;
+}
+
+  public refreshModelOptions(): void {
+    // Re-populate model options from AI Providers plugin
+    this.populateModelOptions();
+  }
+
+  public setSelectedModel(providerAndModel: string): void {
+    // Set the selected model (format: "provider:model")
+    this.modelSelect.value = providerAndModel;
+  }
+
+  public getSelectedModel(): { provider: string; model: string } | null {
+    const value = this.modelSelect.value;
+    if (!value || !value.includes(':')) {
+      return null;
+    }
+    
+    const [provider, model] = value.split(':', 2);
+    return { provider, model };
+  }
+
+  public refreshAvailableModels(): void {
+    // Called when AI Providers plugin becomes available or providers change
+    this.refreshModelOptions();
+  }
+
+  private notifyModelProviderReady(): void {
+    // Emit event that model provider is ready
+    this.events.onModelProviderReady?.();
   }
 
   private populatePromptOptions(): void {
