@@ -2,6 +2,9 @@ var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __esm = (fn, res) => function __init() {
+  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+};
 var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, { get: all[name], enumerable: true });
@@ -15,6 +18,254 @@ var __copyProps = (to, from, except, desc) => {
   return to;
 };
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+
+// plugins/editorial-engine/src/adapters/track-edits-adapter.ts
+var track_edits_adapter_exports = {};
+__export(track_edits_adapter_exports, {
+  TrackEditsAdapter: () => TrackEditsAdapter
+});
+var TrackEditsAdapter;
+var init_track_edits_adapter = __esm({
+  "plugins/editorial-engine/src/adapters/track-edits-adapter.ts"() {
+    TrackEditsAdapter = class {
+      constructor() {
+        this.name = "track-edits";
+        this.version = "1.0.0";
+        this.supportedOperations = ["text-edit", "content-modification", "proofreading", "editing"];
+        this.capabilities = {
+          batchProcessing: true,
+          realTimeProcessing: true,
+          undoSupport: true,
+          provenance: true,
+          streaming: false
+        };
+        this.initialized = false;
+        this.config = {};
+        this.metrics = {
+          executionsCount: 0,
+          successRate: 1,
+          averageLatency: 0,
+          errorCount: 0,
+          lastExecution: Date.now()
+        };
+        this.executionTimes = [];
+        this.errors = [];
+      }
+      async initialize(config) {
+        var _a;
+        this.config = config;
+        if (!((_a = window.WriterrlAPI) == null ? void 0 : _a.trackEdits)) {
+          throw new Error("Track Edits plugin is not loaded or accessible");
+        }
+        const currentSession = window.WriterrlAPI.trackEdits.getCurrentSession();
+        console.log("Track Edits Adapter initialized, current session:", currentSession ? "active" : "none");
+        this.initialized = true;
+      }
+      async execute(job) {
+        const startTime = performance.now();
+        try {
+          if (!this.initialized) {
+            throw new Error("Track Edits Adapter not initialized");
+          }
+          await this.ensureTrackingSession();
+          const trackEditsChanges = this.convertToTrackEditsFormat(job);
+          const result = await this.processChangesWithTrackEdits(trackEditsChanges, job);
+          const executionTime = performance.now() - startTime;
+          this.recordExecution(executionTime, true);
+          return this.convertFromTrackEditsFormat(result, job);
+        } catch (error) {
+          const executionTime = performance.now() - startTime;
+          this.recordExecution(executionTime, false, error.message);
+          return {
+            success: false,
+            jobId: job.id,
+            timestamp: Date.now(),
+            executionTime,
+            errors: [{
+              type: "adapter-error",
+              message: error.message,
+              timestamp: Date.now()
+            }],
+            metadata: {
+              adapter: this.name,
+              version: this.version
+            }
+          };
+        }
+      }
+      async cleanup() {
+        this.initialized = false;
+        this.config = {};
+        console.log("Track Edits Adapter cleaned up");
+      }
+      getStatus() {
+        var _a, _b, _c;
+        const isTrackEditsAvailable = !!((_a = window.WriterrlAPI) == null ? void 0 : _a.trackEdits);
+        const hasActiveSession = !!((_c = (_b = window.WriterrlAPI) == null ? void 0 : _b.trackEdits) == null ? void 0 : _c.getCurrentSession());
+        return {
+          healthy: this.initialized && isTrackEditsAvailable,
+          ready: this.initialized && isTrackEditsAvailable && hasActiveSession,
+          error: !isTrackEditsAvailable ? "Track Edits plugin not available" : !hasActiveSession ? "No active tracking session" : void 0,
+          lastHealthCheck: Date.now(),
+          currentLoad: 0
+        };
+      }
+      getMetrics() {
+        return { ...this.metrics };
+      }
+      // Private implementation methods
+      async ensureTrackingSession() {
+        var _a;
+        if (!((_a = window.WriterrlAPI) == null ? void 0 : _a.trackEdits)) {
+          throw new Error("Track Edits API not available");
+        }
+        const currentSession = window.WriterrlAPI.trackEdits.getCurrentSession();
+        if (!currentSession) {
+          window.WriterrlAPI.trackEdits.startTracking();
+          const newSession = window.WriterrlAPI.trackEdits.getCurrentSession();
+          if (!newSession) {
+            throw new Error("Failed to start Track Edits session");
+          }
+          console.log("Started Track Edits session:", newSession.id);
+        }
+      }
+      convertToTrackEditsFormat(job) {
+        var _a;
+        const changes = [];
+        if (job.payload.changes) {
+          return job.payload.changes;
+        }
+        if (job.payload.text && job.payload.edits) {
+          for (const edit of job.payload.edits) {
+            changes.push({
+              id: `${job.id}-${edit.id || Date.now()}`,
+              timestamp: Date.now(),
+              type: edit.type === "addition" ? "insert" : edit.type === "deletion" ? "delete" : "replace",
+              from: edit.start || 0,
+              to: edit.end || edit.start || 0,
+              text: edit.newText || "",
+              removedText: edit.oldText || "",
+              author: "editorial-engine",
+              metadata: {
+                jobId: job.id,
+                mode: job.payload.mode,
+                provenance: "editorial-engine"
+              }
+            });
+          }
+        } else if (job.payload.text) {
+          changes.push({
+            id: `${job.id}-full-text`,
+            timestamp: Date.now(),
+            type: "replace",
+            from: 0,
+            to: ((_a = job.payload.originalText) == null ? void 0 : _a.length) || 0,
+            text: job.payload.text,
+            removedText: job.payload.originalText || "",
+            author: "editorial-engine",
+            metadata: {
+              jobId: job.id,
+              mode: job.payload.mode,
+              provenance: "editorial-engine"
+            }
+          });
+        }
+        return changes;
+      }
+      async processChangesWithTrackEdits(changes, job) {
+        const trackEditsAPI = window.WriterrlAPI.trackEdits;
+        const currentSession = trackEditsAPI.getCurrentSession();
+        return {
+          success: true,
+          sessionId: currentSession.id,
+          appliedChanges: changes,
+          rejectedChanges: [],
+          timestamp: Date.now(),
+          metadata: {
+            jobId: job.id,
+            mode: job.payload.mode,
+            processingTime: 0
+          }
+        };
+      }
+      convertFromTrackEditsFormat(trackEditsResult, job) {
+        var _a;
+        const executionTime = performance.now() - (((_a = job.metadata) == null ? void 0 : _a.startTime) || Date.now());
+        if (!trackEditsResult.success) {
+          return {
+            success: false,
+            jobId: job.id,
+            timestamp: Date.now(),
+            executionTime,
+            errors: [{
+              type: "track-edits-error",
+              message: "Track Edits processing failed",
+              timestamp: Date.now()
+            }],
+            metadata: {
+              adapter: this.name,
+              version: this.version,
+              trackEditsSession: trackEditsResult.sessionId
+            }
+          };
+        }
+        return {
+          success: true,
+          jobId: job.id,
+          timestamp: Date.now(),
+          executionTime,
+          result: {
+            processedText: job.payload.text,
+            // In real implementation, get processed text from Track Edits
+            changes: trackEditsResult.appliedChanges,
+            rejectedChanges: trackEditsResult.rejectedChanges,
+            sessionId: trackEditsResult.sessionId
+          },
+          metadata: {
+            adapter: this.name,
+            version: this.version,
+            trackEditsSession: trackEditsResult.sessionId,
+            appliedChanges: trackEditsResult.appliedChanges.length,
+            rejectedChanges: trackEditsResult.rejectedChanges.length
+          },
+          provenance: {
+            adapter: this.name,
+            timestamp: Date.now(),
+            jobId: job.id,
+            sessionId: trackEditsResult.sessionId,
+            changes: trackEditsResult.appliedChanges.map((change) => ({
+              id: change.id,
+              type: change.type,
+              position: { from: change.from, to: change.to },
+              author: change.author
+            }))
+          }
+        };
+      }
+      recordExecution(executionTime, success, error) {
+        this.metrics.executionsCount++;
+        this.metrics.lastExecution = Date.now();
+        this.executionTimes.push(executionTime);
+        if (this.executionTimes.length > 100) {
+          this.executionTimes = this.executionTimes.slice(-100);
+        }
+        this.metrics.averageLatency = this.executionTimes.reduce((sum, time) => sum + time, 0) / this.executionTimes.length;
+        if (success) {
+          this.metrics.successRate = (this.metrics.successRate * (this.metrics.executionsCount - 1) + 1) / this.metrics.executionsCount;
+        } else {
+          this.metrics.errorCount++;
+          this.metrics.successRate = this.metrics.successRate * (this.metrics.executionsCount - 1) / this.metrics.executionsCount;
+          if (error) {
+            this.errors.push(error);
+            if (this.errors.length > 50) {
+              this.errors = this.errors.slice(-50);
+            }
+          }
+        }
+      }
+    };
+  }
+});
 
 // plugins/editorial-engine/src/main.ts
 var main_exports = {};
@@ -60,21 +311,27 @@ var EditorialEngineSettingsTab = class extends import_obsidian.PluginSettingTab 
     super(app, plugin);
     this.plugin = plugin;
   }
-  display() {
+  async display() {
     const { containerEl } = this;
     containerEl.empty();
     containerEl.createEl("h2", { text: "Editorial Engine Settings" });
     this.createGeneralSettings(containerEl);
-    this.createModeSettings(containerEl);
+    await this.createModeSettings(containerEl);
     this.createAdapterSettings(containerEl);
     this.createPerformanceSettings(containerEl);
   }
   createGeneralSettings(containerEl) {
     containerEl.createEl("h3", { text: "General Settings" });
-    new import_obsidian.Setting(containerEl).setName("Default Mode").setDesc("The default editing mode to use when no specific mode is selected").addDropdown((dropdown) => dropdown.addOption("proofreader", "Proofreader").addOption("copy-editor", "Copy Editor").addOption("developmental-editor", "Developmental Editor").setValue(this.plugin.settings.defaultMode).onChange(async (value) => {
-      this.plugin.settings.defaultMode = value;
-      await this.plugin.saveSettings();
-    }));
+    const availableModes = this.plugin.modeRegistry.getAllModes();
+    new import_obsidian.Setting(containerEl).setName("Default Mode").setDesc("The default editing mode to use when no specific mode is selected").addDropdown((dropdown) => {
+      for (const mode of availableModes) {
+        dropdown.addOption(mode.id, mode.name);
+      }
+      dropdown.setValue(this.plugin.settings.defaultMode).onChange(async (value) => {
+        this.plugin.settings.defaultMode = value;
+        await this.plugin.saveSettings();
+      });
+    });
     new import_obsidian.Setting(containerEl).setName("Strict Mode").setDesc("Enable strict constraint validation (recommended)").addToggle((toggle) => toggle.setValue(this.plugin.settings.constraintValidation.strictMode).onChange(async (value) => {
       this.plugin.settings.constraintValidation.strictMode = value;
       await this.plugin.saveSettings();
@@ -84,7 +341,7 @@ var EditorialEngineSettingsTab = class extends import_obsidian.PluginSettingTab 
       await this.plugin.saveSettings();
     }));
   }
-  createModeSettings(containerEl) {
+  async createModeSettings(containerEl) {
     containerEl.createEl("h3", { text: "Mode Configuration" });
     const modesContainer = containerEl.createDiv("modes-container");
     modesContainer.style.cssText = `
@@ -93,16 +350,29 @@ var EditorialEngineSettingsTab = class extends import_obsidian.PluginSettingTab 
       padding: 15px;
       margin: 10px 0;
     `;
+    const infoEl = modesContainer.createEl("p", {
+      text: "Modes are loaded from .obsidian/plugins/editorial-engine/modes/ folder. Add or edit .md files to create custom modes.",
+      cls: "setting-item-description"
+    });
+    infoEl.style.cssText = `
+      color: var(--text-muted);
+      font-size: 0.9em;
+      margin-bottom: 15px;
+      padding: 8px;
+      background: var(--background-secondary);
+      border-radius: 3px;
+    `;
     const enabledModes = this.plugin.settings.enabledModes;
-    const allModes = [
-      { id: "proofreader", name: "Proofreader", desc: "Grammar, spelling, and basic clarity fixes" },
-      { id: "copy-editor", name: "Copy Editor", desc: "Style, flow, and consistency improvements" },
-      { id: "developmental-editor", name: "Developmental Editor", desc: "Structure and content development" },
-      { id: "academic-mode", name: "Academic Mode", desc: "Academic writing standards and conventions" },
-      { id: "business-mode", name: "Business Mode", desc: "Professional business communication" }
-    ];
-    for (const mode of allModes) {
-      new import_obsidian.Setting(modesContainer).setName(mode.name).setDesc(mode.desc).addToggle((toggle) => toggle.setValue(enabledModes.includes(mode.id)).onChange(async (value) => {
+    const availableModes = this.plugin.modeRegistry.getAllModes();
+    if (availableModes.length === 0) {
+      modesContainer.createEl("p", {
+        text: "No modes found. Add mode files to .obsidian/plugins/editorial-engine/modes/ folder.",
+        cls: "setting-item-description"
+      });
+      return;
+    }
+    for (const mode of availableModes) {
+      new import_obsidian.Setting(modesContainer).setName(mode.name).setDesc(mode.description || `${mode.name} mode`).addToggle((toggle) => toggle.setValue(enabledModes.includes(mode.id)).onChange(async (value) => {
         if (value) {
           if (!enabledModes.includes(mode.id)) {
             enabledModes.push(mode.id);
@@ -405,70 +675,366 @@ var RulesetCompiler = class {
   }
 };
 var NaturalLanguageProcessor = class {
+  constructor() {
+    // Common patterns for better rule parsing
+    this.QUANTIFIER_PATTERNS = [
+      /(\d+)\s*%/i,
+      // "25%", "50%"
+      /no more than\s+(\d+)\s*%/i,
+      // "no more than 15%"
+      /less than\s+(\d+)\s*%/i,
+      // "less than 20%"
+      /under\s+(\d+)\s*%/i,
+      // "under 10%"
+      /(\d+)\s*(words?|characters?|sentences?)/i,
+      // "100 words", "50 characters"
+      /minimal(?:ly)?/i,
+      // "minimal changes"
+      /maximum\s+(\d+)/i
+      // "maximum 3 sentences"
+    ];
+    this.PERMISSION_KEYWORDS = [
+      "allow",
+      "permit",
+      "enable",
+      "fix",
+      "correct",
+      "improve",
+      "enhance",
+      "adjust",
+      "modify",
+      "update",
+      "refine",
+      "polish",
+      "standardize"
+    ];
+    this.PROHIBITION_KEYWORDS = [
+      "never",
+      "don't",
+      "avoid",
+      "prevent",
+      "prohibit",
+      "forbid",
+      "exclude",
+      "reject",
+      "disallow",
+      "no",
+      "not"
+    ];
+    this.FOCUS_KEYWORDS = [
+      "focus",
+      "emphasize",
+      "prioritize",
+      "concentrate",
+      "target",
+      "highlight",
+      "stress",
+      "feature"
+    ];
+    this.BOUNDARY_KEYWORDS = [
+      "limit",
+      "restrict",
+      "bound",
+      "constrain",
+      "cap",
+      "maximum",
+      "minimum",
+      "within",
+      "under",
+      "over"
+    ];
+  }
   async parse(rule, ruleType) {
     const confidence = this.calculateConfidence(rule);
-    const intent = this.extractIntent(rule);
+    const intent = this.extractIntent(rule, ruleType);
     const parameters = this.extractParameters(rule);
+    const context = this.extractContext(rule);
+    const constraints = this.extractConstraintHints(rule);
     return {
       type: ruleType,
       intent,
       confidence,
-      parameters
+      parameters: {
+        ...parameters,
+        context,
+        constraints,
+        originalRule: rule
+      }
     };
   }
   calculateConfidence(rule) {
-    let confidence = 0.5;
-    const specificKeywords = [
-      "grammar",
-      "spelling",
-      "punctuation",
-      "voice",
-      "tone",
-      "style",
-      "meaning",
-      "content",
-      "structure",
-      "flow",
-      "clarity"
+    let confidence = 0.4;
+    const clarityIndicators = [
+      /specific|exact|precisely|clearly|explicitly/i,
+      /always|never|must|should|shall/i,
+      /\d+/,
+      // Contains numbers
+      /grammar|spelling|punctuation|style|tone|voice|meaning/i
     ];
-    for (const keyword of specificKeywords) {
-      if (rule.toLowerCase().includes(keyword)) {
+    for (const indicator of clarityIndicators) {
+      if (indicator.test(rule)) {
         confidence += 0.1;
       }
     }
-    if (rule.match(/\d+%/) || rule.match(/\d+\s*(words?|characters?)/)) {
+    if (this.hasQuantifiers(rule)) {
       confidence += 0.2;
+    }
+    const technicalTerms = [
+      "subject-verb agreement",
+      "passive voice",
+      "sentence structure",
+      "paragraph transitions",
+      "logical flow",
+      "argumentation",
+      "semantic analysis",
+      "syntactic correctness"
+    ];
+    for (const term of technicalTerms) {
+      if (rule.toLowerCase().includes(term)) {
+        confidence += 0.15;
+        break;
+      }
+    }
+    if (rule.length > 20 && rule.length < 200) {
+      confidence += 0.05;
     }
     return Math.min(confidence, 1);
   }
-  extractIntent(rule) {
-    const rule_lower = rule.toLowerCase();
-    if (rule_lower.includes("fix") || rule_lower.includes("correct")) {
-      return "correction";
+  extractIntent(rule, ruleType) {
+    const lowerRule = rule.toLowerCase();
+    const actionPatterns = [
+      { pattern: /fix|correct|repair/, intent: "correction" },
+      { pattern: /improve|enhance|refine|polish/, intent: "enhancement" },
+      { pattern: /preserve|maintain|keep|retain/, intent: "preservation" },
+      { pattern: /check|validate|verify|ensure/, intent: "validation" },
+      { pattern: /rewrite|restructure|reorganize/, intent: "restructuring" },
+      { pattern: /summarize|condense|shorten/, intent: "summarization" },
+      { pattern: /expand|elaborate|develop/, intent: "expansion" },
+      { pattern: /standardize|normalize|format/, intent: "standardization" }
+    ];
+    for (const { pattern, intent } of actionPatterns) {
+      if (pattern.test(lowerRule)) {
+        return intent;
+      }
     }
-    if (rule_lower.includes("improve") || rule_lower.includes("enhance")) {
-      return "improvement";
+    if (lowerRule.includes("grammar") || lowerRule.includes("spelling")) {
+      return "grammatical-correction";
     }
-    if (rule_lower.includes("preserve") || rule_lower.includes("maintain")) {
-      return "preservation";
+    if (lowerRule.includes("style") || lowerRule.includes("flow")) {
+      return "stylistic-improvement";
     }
-    if (rule_lower.includes("never") || rule_lower.includes("don't") || rule_lower.includes("avoid")) {
-      return "prohibition";
+    if (lowerRule.includes("structure") || lowerRule.includes("organization")) {
+      return "structural-editing";
     }
-    return rule.trim();
+    if (lowerRule.includes("voice") || lowerRule.includes("tone")) {
+      return "voice-preservation";
+    }
+    const typeBasedIntents = {
+      "permission": "allow-operation",
+      "prohibition": "prevent-operation",
+      "boundary": "limit-operation",
+      "focus": "prioritize-operation"
+    };
+    return typeBasedIntents[ruleType] || rule.trim();
   }
   extractParameters(rule) {
     const parameters = {};
-    const percentageMatch = rule.match(/(\d+)%/);
-    if (percentageMatch) {
-      parameters.percentage = parseInt(percentageMatch[1]);
+    const percentageMatches = rule.match(/(\d+)\s*%/g);
+    if (percentageMatches) {
+      parameters.percentages = percentageMatches.map((m) => parseInt(m));
+      parameters.primaryPercentage = parameters.percentages[0];
     }
-    const countMatch = rule.match(/(\d+)\s*(words?|characters?)/i);
-    if (countMatch) {
-      parameters.count = parseInt(countMatch[1]);
-      parameters.unit = countMatch[2].toLowerCase();
+    const countMatches = rule.matchAll(/(\d+)\s*(words?|characters?|sentences?)/gi);
+    for (const match of countMatches) {
+      const count = parseInt(match[1]);
+      const unit = match[2].toLowerCase();
+      parameters[`${unit}Count`] = count;
+    }
+    const comparisonPatterns = [
+      { pattern: /no more than|less than|under|below/, operator: "lte" },
+      { pattern: /more than|greater than|above|over/, operator: "gte" },
+      { pattern: /exactly|precisely/, operator: "eq" },
+      { pattern: /approximately|around|about/, operator: "approx" }
+    ];
+    for (const { pattern, operator } of comparisonPatterns) {
+      if (pattern.test(rule.toLowerCase())) {
+        parameters.comparisonOperator = operator;
+        break;
+      }
+    }
+    const scopePatterns = [
+      { pattern: /entire|whole|complete|full/, scope: "document" },
+      { pattern: /paragraph|section/, scope: "paragraph" },
+      { pattern: /sentence/, scope: "sentence" },
+      { pattern: /word|phrase/, scope: "word" }
+    ];
+    for (const { pattern, scope } of scopePatterns) {
+      if (pattern.test(rule.toLowerCase())) {
+        parameters.scope = scope;
+        break;
+      }
+    }
+    const priorityPatterns = [
+      { pattern: /critical|essential|vital|must/, priority: "high" },
+      { pattern: /important|should|recommended/, priority: "medium" },
+      { pattern: /optional|consider|might/, priority: "low" }
+    ];
+    for (const { pattern, priority } of priorityPatterns) {
+      if (pattern.test(rule.toLowerCase())) {
+        parameters.priority = priority;
+        break;
+      }
     }
     return parameters;
+  }
+  extractContext(rule) {
+    const context = {};
+    const lowerRule = rule.toLowerCase();
+    const documentTypes = [
+      "academic",
+      "business",
+      "creative",
+      "technical",
+      "legal",
+      "marketing",
+      "journalistic",
+      "scientific"
+    ];
+    for (const type of documentTypes) {
+      if (lowerRule.includes(type)) {
+        context.documentType = type;
+        break;
+      }
+    }
+    const audienceTypes = [
+      "professional",
+      "academic",
+      "general",
+      "technical",
+      "casual",
+      "formal",
+      "informal",
+      "expert",
+      "beginner"
+    ];
+    for (const audience of audienceTypes) {
+      if (lowerRule.includes(audience)) {
+        context.audience = audience;
+        break;
+      }
+    }
+    const styleTypes = [
+      "formal",
+      "informal",
+      "conversational",
+      "authoritative",
+      "persuasive",
+      "descriptive",
+      "narrative",
+      "expository"
+    ];
+    for (const style of styleTypes) {
+      if (lowerRule.includes(style)) {
+        context.style = style;
+        break;
+      }
+    }
+    const languageFeatures = [
+      "terminology",
+      "jargon",
+      "idioms",
+      "metaphors",
+      "analogies",
+      "voice",
+      "tone",
+      "perspective",
+      "tense",
+      "person"
+    ];
+    context.languageFeatures = [];
+    for (const feature of languageFeatures) {
+      if (lowerRule.includes(feature)) {
+        context.languageFeatures.push(feature);
+      }
+    }
+    return context;
+  }
+  extractConstraintHints(rule) {
+    const hints = [];
+    const lowerRule = rule.toLowerCase();
+    const constraintPatterns = [
+      { pattern: /grammar|spelling|punctuation/, hint: "grammatical" },
+      { pattern: /style|flow|readability/, hint: "stylistic" },
+      { pattern: /length|word count|character count/, hint: "length-based" },
+      { pattern: /tone|voice|perspective/, hint: "tonal" },
+      { pattern: /structure|organization|format/, hint: "structural" },
+      { pattern: /content|meaning|intent/, hint: "semantic" },
+      { pattern: /consistency|uniformity/, hint: "consistency" },
+      { pattern: /clarity|comprehension/, hint: "clarity" }
+    ];
+    for (const { pattern, hint } of constraintPatterns) {
+      if (pattern.test(lowerRule)) {
+        hints.push(hint);
+      }
+    }
+    if (lowerRule.includes("minimal") || lowerRule.includes("conservative")) {
+      hints.push("conservative-editing");
+    }
+    if (lowerRule.includes("aggressive") || lowerRule.includes("extensive")) {
+      hints.push("extensive-editing");
+    }
+    if (lowerRule.includes("preserve") || lowerRule.includes("maintain")) {
+      hints.push("preservation-focused");
+    }
+    return hints;
+  }
+  hasQuantifiers(rule) {
+    return this.QUANTIFIER_PATTERNS.some((pattern) => pattern.test(rule));
+  }
+  // Advanced parsing methods for specific domains
+  parseGrammarRule(rule) {
+    const grammarAspects = {
+      "subject-verb agreement": /subject.?verb|agreement/i,
+      "tense consistency": /tense|past|present|future/i,
+      "pronoun reference": /pronoun|reference|antecedent/i,
+      "modifier placement": /modifier|dangling|misplaced/i,
+      "parallel structure": /parallel|series|list/i
+    };
+    const detected = {};
+    for (const [aspect, pattern] of Object.entries(grammarAspects)) {
+      detected[aspect] = pattern.test(rule);
+    }
+    return detected;
+  }
+  parseStyleRule(rule) {
+    const styleAspects = {
+      "sentence variety": /sentence.*variety|varied.*sentence/i,
+      "word choice": /word.*choice|vocabulary|diction/i,
+      "transitions": /transition|flow|connection/i,
+      "conciseness": /concise|wordiness|brevity/i,
+      "active voice": /active.*voice|passive.*voice/i,
+      "clarity": /clear|clarity|comprehension/i
+    };
+    const detected = {};
+    for (const [aspect, pattern] of Object.entries(styleAspects)) {
+      detected[aspect] = pattern.test(rule);
+    }
+    return detected;
+  }
+  parseStructuralRule(rule) {
+    const structuralAspects = {
+      "paragraph structure": /paragraph.*structure|topic.*sentence/i,
+      "logical flow": /logical.*flow|sequence|order/i,
+      "argumentation": /argument|evidence|support|reasoning/i,
+      "introduction": /introduction|opening|hook/i,
+      "conclusion": /conclusion|ending|summary/i,
+      "headings": /heading|title|section/i
+    };
+    const detected = {};
+    for (const [aspect, pattern] of Object.entries(structuralAspects)) {
+      detected[aspect] = pattern.test(rule);
+    }
+    return detected;
   }
 };
 
@@ -496,35 +1062,67 @@ var ConstraintProcessor = class {
       if (!validation.valid) {
         throw new Error(`Constraint validation failed: ${validation.errors.join(", ")}`);
       }
+      if (validation.warnings && validation.warnings.length > 0) {
+        console.warn("Constraint validation warnings:", validation.warnings);
+        this.eventBus.emit("constraint-validation-warnings", {
+          intakeId: intake.id,
+          warnings: validation.warnings
+        });
+      }
       const executionPlan = await this.createExecutionPlan(ruleset, intake);
       const results = await this.executeViaAdapters(executionPlan);
       const finalResult = await this.assembleResults(results, intake, startTime);
+      if (validation.warnings && validation.warnings.length > 0) {
+        finalResult.summary.warnings.push(...validation.warnings);
+      }
       await this.validateResults(finalResult, ruleset);
       return finalResult;
     } catch (error) {
+      console.error("Constraint processing error:", error);
+      this.eventBus.emit("constraint-processing-error", {
+        intakeId: intake.id,
+        error: error.message,
+        stage: "processing"
+      });
       return this.createErrorResult(intake, error, startTime);
     }
   }
   async normalizeIntake(intake) {
-    return {
+    const normalized = {
       ...intake,
       instructions: intake.instructions.trim(),
       sourceText: intake.sourceText.trim()
     };
+    if (!normalized.instructions) {
+      throw new Error("Instructions cannot be empty");
+    }
+    if (!normalized.sourceText) {
+      throw new Error("Source text cannot be empty");
+    }
+    if (!normalized.mode) {
+      normalized.mode = this.settings.defaultMode || "proofreader";
+    }
+    return normalized;
   }
   async recognizeIntent(intake) {
     const instructions = intake.instructions.toLowerCase();
     let type = "general-edit";
-    let confidence = 0.8;
-    if (instructions.includes("grammar") || instructions.includes("spelling")) {
-      type = "grammar-check";
-      confidence = 0.9;
-    } else if (instructions.includes("style") || instructions.includes("improve")) {
-      type = "style-enhancement";
-      confidence = 0.85;
-    } else if (instructions.includes("summarize") || instructions.includes("summary")) {
-      type = "summarization";
-      confidence = 0.95;
+    let confidence = 0.7;
+    const intentPatterns = [
+      { pattern: /\b(grammar|spelling|punctuation)\b/g, intent: "grammar-check", confidence: 0.9 },
+      { pattern: /\b(style|flow|readability)\b/g, intent: "style-enhancement", confidence: 0.85 },
+      { pattern: /\b(summarize|summary|condense)\b/g, intent: "summarization", confidence: 0.95 },
+      { pattern: /\b(improve|enhance|polish)\b/g, intent: "improvement", confidence: 0.8 },
+      { pattern: /\b(rewrite|restructure)\b/g, intent: "restructuring", confidence: 0.9 },
+      { pattern: /\b(proofread|check|review)\b/g, intent: "proofreading", confidence: 0.85 }
+    ];
+    for (const { pattern, intent, confidence: patternConfidence } of intentPatterns) {
+      const matches = instructions.match(pattern);
+      if (matches) {
+        type = intent;
+        confidence = Math.min(patternConfidence + (matches.length - 1) * 0.05, 1);
+        break;
+      }
     }
     return {
       type,
@@ -532,29 +1130,184 @@ var ConstraintProcessor = class {
       parameters: {
         originalInstructions: intake.instructions,
         textLength: intake.sourceText.length,
-        mode: intake.mode
+        mode: intake.mode,
+        detectedPatterns: instructions.match(/\b(grammar|spelling|style|improve|summarize)\b/g) || []
       }
     };
   }
   async compileConstraints(intent, mode) {
-    return await this.compiler.compile(intent, mode);
+    try {
+      return await this.compiler.compile(intent, mode);
+    } catch (error) {
+      console.error("Constraint compilation failed:", error);
+      throw new Error(`Failed to compile constraints: ${error.message}`);
+    }
   }
   async validateConstraints(ruleset) {
     const errors = [];
+    const warnings = [];
     if (!ruleset.constraints || ruleset.constraints.length === 0) {
-      errors.push("No constraints defined");
+      errors.push("No constraints defined in ruleset");
     }
     if (ruleset.executionParams.timeout <= 0) {
-      errors.push("Invalid timeout value");
+      errors.push("Invalid timeout value - must be positive");
+    }
+    if (ruleset.executionParams.timeout > 6e4) {
+      warnings.push("Timeout value is very high (>60s) - may affect user experience");
+    }
+    if (!ruleset.executionParams.preferredAdapters || ruleset.executionParams.preferredAdapters.length === 0) {
+      warnings.push("No preferred adapters specified - execution may be unpredictable");
+    }
+    if (ruleset.constraints && ruleset.constraints.length > 0) {
+      const constraintValidation = await this.validateIndividualConstraints(ruleset.constraints);
+      errors.push(...constraintValidation.errors);
+      warnings.push(...constraintValidation.warnings);
+      const conflictValidation = this.validateConstraintConflicts(ruleset.constraints);
+      errors.push(...conflictValidation.errors);
+      warnings.push(...conflictValidation.warnings);
+    }
+    if (ruleset.validationRules && ruleset.validationRules.length > 0) {
+      const ruleValidation = this.validateValidationRules(ruleset.validationRules);
+      errors.push(...ruleValidation.errors);
+      warnings.push(...ruleValidation.warnings);
+    }
+    if (this.settings.constraintValidation.strictMode) {
+      const performanceValidation = this.validatePerformanceConstraints(ruleset);
+      errors.push(...performanceValidation.errors);
+      warnings.push(...performanceValidation.warnings);
     }
     return {
       valid: errors.length === 0,
-      errors
+      errors,
+      warnings
     };
+  }
+  async validateIndividualConstraints(constraints) {
+    const errors = [];
+    const warnings = [];
+    for (const constraint of constraints) {
+      if (!constraint.type) {
+        errors.push("Constraint missing type specification");
+        continue;
+      }
+      if (constraint.priority < 0 || constraint.priority > 100) {
+        warnings.push(`Constraint priority ${constraint.priority} outside recommended range (0-100)`);
+      }
+      switch (constraint.type) {
+        case "length_limit" /* LENGTH_LIMIT */:
+          if (constraint.parameters.maxChangeRatio && (constraint.parameters.maxChangeRatio < 0 || constraint.parameters.maxChangeRatio > 1)) {
+            errors.push("LENGTH_LIMIT maxChangeRatio must be between 0 and 1");
+          }
+          break;
+        case "grammar_only" /* GRAMMAR_ONLY */:
+          if (!constraint.parameters.allowSpelling && !constraint.parameters.allowGrammar) {
+            warnings.push("GRAMMAR_ONLY constraint allows neither spelling nor grammar fixes");
+          }
+          break;
+        case "preserve_tone" /* PRESERVE_TONE */:
+          if (constraint.parameters.preserveVoice === false && constraint.parameters.preserveStyle === false) {
+            warnings.push("PRESERVE_TONE constraint preserves neither voice nor style");
+          }
+          break;
+        case "no_content_change" /* NO_CONTENT_CHANGE */:
+          if (constraint.parameters.preserveMeaning === false) {
+            errors.push("NO_CONTENT_CHANGE constraint must preserve meaning");
+          }
+          break;
+      }
+      if (constraint.validation && constraint.validation.length > 0) {
+        for (const validationRule of constraint.validation) {
+          if (!validationRule.type || !validationRule.condition) {
+            errors.push("Constraint validation rule missing type or condition");
+          }
+        }
+      }
+    }
+    return { errors, warnings };
+  }
+  validateConstraintConflicts(constraints) {
+    const errors = [];
+    const warnings = [];
+    const constraintTypes = constraints.map((c) => c.type);
+    if (constraintTypes.includes("grammar_only" /* GRAMMAR_ONLY */) && constraintTypes.includes("style_consistency" /* STYLE_CONSISTENCY */)) {
+      warnings.push("Potential conflict: Grammar-only and style consistency constraints may interfere");
+    }
+    if (constraintTypes.includes("no_content_change" /* NO_CONTENT_CHANGE */)) {
+      const improvementConstraints = constraints.filter(
+        (c) => {
+          var _a, _b;
+          return ((_a = c.parameters.allowedOperations) == null ? void 0 : _a.includes("improvement")) || ((_b = c.parameters.allowedOperations) == null ? void 0 : _b.includes("enhancement"));
+        }
+      );
+      if (improvementConstraints.length > 0) {
+        warnings.push("Potential conflict: Content preservation vs improvement constraints");
+      }
+    }
+    const lengthConstraints = constraints.filter((c) => c.type === "length_limit" /* LENGTH_LIMIT */);
+    if (lengthConstraints.length > 1) {
+      const ratios = lengthConstraints.map((c) => c.parameters.maxChangeRatio).filter((r) => r);
+      if (ratios.length > 0) {
+        const minRatio = Math.min(...ratios);
+        const maxRatio = Math.max(...ratios);
+        if (minRatio !== maxRatio) {
+          warnings.push(`Conflicting length limits: ${minRatio * 100}% vs ${maxRatio * 100}%`);
+        }
+      }
+    }
+    const highPriorityConstraints = constraints.filter((c) => c.priority >= 80);
+    if (highPriorityConstraints.length > 3) {
+      warnings.push(`Many high-priority constraints (${highPriorityConstraints.length}) may create conflicts`);
+    }
+    return { errors, warnings };
+  }
+  validateValidationRules(validationRules) {
+    const errors = [];
+    const warnings = [];
+    for (const rule of validationRules) {
+      if (!rule.type || !rule.condition) {
+        errors.push("Validation rule missing type or condition");
+        continue;
+      }
+      if (rule.condition.includes("undefined") || rule.condition.includes("null")) {
+        warnings.push(`Validation rule condition may have undefined references: ${rule.condition}`);
+      }
+      if (rule.type === "change-ratio-check" && !rule.condition.includes("change-ratio")) {
+        errors.push("change-ratio-check rule must reference change-ratio in condition");
+      }
+      if (rule.type === "semantic-analysis" && !rule.condition.includes("meaning-similarity") && !rule.condition.includes("semantic-distance")) {
+        warnings.push("semantic-analysis rule should reference meaning-similarity or semantic-distance");
+      }
+      if (rule.type === "tone-analysis" && !rule.condition.includes("tone-similarity")) {
+        warnings.push("tone-analysis rule should reference tone-similarity");
+      }
+    }
+    return { errors, warnings };
+  }
+  validatePerformanceConstraints(ruleset) {
+    const errors = [];
+    const warnings = [];
+    const totalConstraints = ruleset.constraints.length;
+    const complexValidationRules = ruleset.validationRules.filter(
+      (r) => r.type.includes("semantic") || r.type.includes("tone")
+    ).length;
+    if (totalConstraints > 20) {
+      warnings.push(`High constraint count (${totalConstraints}) may impact performance`);
+    }
+    if (complexValidationRules > 10) {
+      warnings.push(`Many complex validation rules (${complexValidationRules}) may slow processing`);
+    }
+    const expectedComplexity = totalConstraints + complexValidationRules * 2;
+    const recommendedTimeout = Math.max(5e3, expectedComplexity * 200);
+    if (ruleset.executionParams.timeout < recommendedTimeout) {
+      warnings.push(
+        `Timeout (${ruleset.executionParams.timeout}ms) may be too short for complexity level (recommended: ${recommendedTimeout}ms)`
+      );
+    }
+    return { errors, warnings };
   }
   async createExecutionPlan(ruleset, intake) {
     return {
-      id: `plan-${Date.now()}`,
+      id: `plan-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
       ruleset,
       intake,
       steps: [
@@ -564,10 +1317,13 @@ var ConstraintProcessor = class {
           payload: {
             text: intake.sourceText,
             instructions: intake.instructions,
-            constraints: ruleset.constraints
-          }
+            constraints: ruleset.constraints,
+            mode: intake.mode
+          },
+          priority: 1
         }
-      ]
+      ],
+      createdAt: Date.now()
     };
   }
   async executeViaAdapters(executionPlan) {
@@ -575,20 +1331,27 @@ var ConstraintProcessor = class {
     for (const step of executionPlan.steps) {
       try {
         const result = await this.adapterManager.execute({
-          id: `job-${Date.now()}`,
+          id: `job-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
           type: step.type,
           payload: step.payload,
           constraints: executionPlan.ruleset.constraints,
           context: executionPlan.intake.context,
           timeout: executionPlan.ruleset.executionParams.timeout
         });
-        results.push(result);
+        results.push({
+          success: true,
+          data: result,
+          adapter: step.adapter,
+          processingTime: result.processingTime || 0
+        });
       } catch (error) {
-        console.error("Adapter execution failed:", error);
+        console.error(`Adapter execution failed for step ${step.type}:`, error);
         results.push({
           success: false,
           error: error.message,
-          data: null
+          data: null,
+          adapter: step.adapter,
+          processingTime: 0
         });
       }
     }
@@ -599,39 +1362,46 @@ var ConstraintProcessor = class {
     const changes = [];
     const hasSuccessfulResult = results.some((r) => r.success);
     if (hasSuccessfulResult) {
-      changes.push({
-        id: `change-${Date.now()}`,
-        type: "replace",
-        range: { start: 0, end: intake.sourceText.length },
-        originalText: intake.sourceText,
-        newText: intake.sourceText,
-        // Placeholder - actual processing would modify this
-        confidence: 0.85,
-        reasoning: `Applied ${intake.mode} mode constraints`,
-        source: "editorial-engine",
-        timestamp: Date.now()
-      });
+      for (const result of results.filter((r) => r.success)) {
+        if (result.data && result.data.changes) {
+          changes.push(...result.data.changes);
+        } else {
+          changes.push({
+            id: `change-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+            type: "replace",
+            range: { start: 0, end: intake.sourceText.length },
+            originalText: intake.sourceText,
+            newText: intake.sourceText,
+            // Would be modified by actual processing
+            confidence: 0.85,
+            reasoning: `Applied ${intake.mode} mode constraints via ${result.adapter}`,
+            source: "editorial-engine",
+            timestamp: Date.now()
+          });
+        }
+      }
     }
     const provenance = {
-      steps: [
-        {
-          stage: "constraint-processing",
-          input: intake,
-          output: results,
-          processingTime,
-          adapter: "editorial-engine"
-        }
-      ],
+      steps: results.map((result, index) => ({
+        stage: `adapter-execution-${index}`,
+        input: intake,
+        output: result,
+        processingTime: result.processingTime,
+        adapter: result.adapter || "unknown"
+      })),
       totalTime: processingTime
     };
     const summary = {
       totalChanges: changes.length,
-      changeSummary: { "replace": changes.length },
-      confidence: 0.85,
+      changeSummary: changes.reduce((acc, change) => {
+        acc[change.type] = (acc[change.type] || 0) + 1;
+        return acc;
+      }, {}),
+      confidence: changes.length > 0 ? changes.reduce((sum, c) => sum + c.confidence, 0) / changes.length : 0,
       warnings: []
     };
     return {
-      id: `result-${Date.now()}`,
+      id: `result-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
       intakeId: intake.id,
       success: hasSuccessfulResult,
       processingTime,
@@ -641,23 +1411,54 @@ var ConstraintProcessor = class {
       summary,
       metadata: {
         mode: intake.mode,
-        adapterResults: results.length
+        adapterResults: results.length,
+        successfulAdapters: results.filter((r) => r.success).length,
+        failedAdapters: results.filter((r) => !r.success).length
       }
     };
   }
   async validateResults(result, ruleset) {
     if (this.settings.constraintValidation.strictMode) {
       if (result.changes.length > 100) {
-        throw new Error("Too many changes - possible constraint violation");
+        throw new Error("Too many changes - possible constraint violation (>100 changes)");
       }
       if (result.processingTime > this.settings.constraintValidation.maxProcessingTime) {
         console.warn(`Processing time exceeded limit: ${result.processingTime}ms`);
       }
+      for (const constraint of ruleset.constraints) {
+        if (constraint.type === "length_limit" /* LENGTH_LIMIT */) {
+          const changeRatio = this.calculateChangeRatio(result.changes);
+          if (changeRatio > constraint.parameters.maxChangeRatio) {
+            throw new Error(
+              `Change ratio ${(changeRatio * 100).toFixed(1)}% exceeds constraint limit ${(constraint.parameters.maxChangeRatio * 100).toFixed(1)}%`
+            );
+          }
+        }
+      }
     }
+    this.eventBus.emit("result-validation-complete", {
+      resultId: result.id,
+      success: result.success,
+      changeCount: result.changes.length,
+      processingTime: result.processingTime
+    });
+  }
+  calculateChangeRatio(changes) {
+    if (changes.length === 0)
+      return 0;
+    let totalOriginalLength = 0;
+    let totalNewLength = 0;
+    for (const change of changes) {
+      totalOriginalLength += change.originalText.length;
+      totalNewLength += change.newText.length;
+    }
+    if (totalOriginalLength === 0)
+      return 0;
+    return Math.abs(totalNewLength - totalOriginalLength) / totalOriginalLength;
   }
   createErrorResult(intake, error, startTime) {
     return {
-      id: `error-result-${Date.now()}`,
+      id: `error-result-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
       intakeId: intake.id,
       success: false,
       processingTime: performance.now() - startTime,
@@ -667,8 +1468,9 @@ var ConstraintProcessor = class {
         steps: [{
           stage: "error",
           input: intake,
-          output: { error: error.message },
-          processingTime: performance.now() - startTime
+          output: { error: error.message, stack: error.stack },
+          processingTime: performance.now() - startTime,
+          adapter: "editorial-engine"
         }],
         totalTime: performance.now() - startTime
       },
@@ -680,7 +1482,8 @@ var ConstraintProcessor = class {
       },
       metadata: {
         error: error.message,
-        mode: intake.mode
+        mode: intake.mode,
+        stage: "constraint-processing"
       }
     };
   }
@@ -693,11 +1496,16 @@ var ModeRegistry = class {
     this.settings = settings;
     this.modes = /* @__PURE__ */ new Map();
     this.compiler = new RulesetCompiler();
+    this.loadPersistedModes();
   }
   async registerMode(mode) {
     const validation = await this.validateMode(mode);
     if (!validation.valid) {
       throw new Error(`Mode validation failed: ${validation.errors.join(", ")}`);
+    }
+    if (this.modes.has(mode.id)) {
+      const existingMode = this.modes.get(mode.id);
+      mode = await this.migrateMode(mode, existingMode.version);
     }
     if (!mode.constraints || mode.constraints.length === 0) {
       try {
@@ -710,6 +1518,9 @@ var ModeRegistry = class {
     }
     this.modes.set(mode.id, mode);
     this.eventBus.emit("mode-registered", { mode });
+    if (!["proofreader", "copy-editor", "developmental-editor", "creative-writing-assistant"].includes(mode.id)) {
+      await this.persistModes();
+    }
     console.log(`Registered mode: ${mode.name} (${mode.id})`);
   }
   getMode(id) {
@@ -734,11 +1545,16 @@ var ModeRegistry = class {
     this.modes.set(id, updatedMode);
     this.eventBus.emit("mode-updated", { mode: updatedMode });
   }
-  removeMode(id) {
+  async removeMode(id) {
     if (this.modes.has(id)) {
       const mode = this.modes.get(id);
+      if (["proofreader", "copy-editor", "developmental-editor", "creative-writing-assistant"].includes(id)) {
+        throw new Error(`Cannot remove default mode: ${id}`);
+      }
       this.modes.delete(id);
       this.eventBus.emit("mode-removed", { modeId: id, mode });
+      await this.persistModes();
+      console.log(`Removed mode: ${mode.name} (${id})`);
     }
   }
   async validateMode(mode) {
@@ -815,6 +1631,81 @@ var ModeRegistry = class {
     }
     return { imported, errors };
   }
+  // Mode persistence for Obsidian restarts
+  async loadPersistedModes() {
+    var _a, _b;
+    if ((_b = (_a = this.settings) == null ? void 0 : _a.app) == null ? void 0 : _b.vault) {
+      try {
+        const data = await this.settings.app.vault.adapter.read(".obsidian/plugins/editorial-engine/modes.json");
+        if (data) {
+          const modes = JSON.parse(data);
+          for (const mode of modes) {
+            if (!this.modes.has(mode.id)) {
+              await this.registerMode(mode);
+            }
+          }
+          console.log(`Loaded ${modes.length} persisted modes`);
+        }
+      } catch (error) {
+        console.log("No persisted modes found or failed to load");
+      }
+    }
+  }
+  async persistModes() {
+    var _a, _b;
+    if ((_b = (_a = this.settings) == null ? void 0 : _a.app) == null ? void 0 : _b.vault) {
+      try {
+        const customModes = Array.from(this.modes.values()).filter(
+          (mode) => !["proofreader", "copy-editor", "developmental-editor", "creative-writing-assistant"].includes(mode.id)
+        );
+        const data = JSON.stringify(customModes, null, 2);
+        await this.settings.app.vault.adapter.write(".obsidian/plugins/editorial-engine/modes.json", data);
+        console.log(`Persisted ${customModes.length} custom modes`);
+      } catch (error) {
+        console.error("Failed to persist modes:", error);
+      }
+    }
+  }
+  // Version migration support
+  async migrateMode(mode, targetVersion) {
+    const currentVersion = mode.version || "1.0.0";
+    if (this.compareVersions(currentVersion, targetVersion) >= 0) {
+      return mode;
+    }
+    const migratedMode = { ...mode };
+    if (currentVersion === "1.0.0" && this.compareVersions(targetVersion, "1.1.0") >= 0) {
+      if (!migratedMode.metadata.migrationHistory) {
+        migratedMode.metadata.migrationHistory = [
+          {
+            from: currentVersion,
+            to: "1.1.0",
+            timestamp: Date.now(),
+            changes: ["Added migration history tracking"]
+          }
+        ];
+      }
+      migratedMode.version = "1.1.0";
+    }
+    this.eventBus.emit("mode-migrated", {
+      mode: migratedMode,
+      fromVersion: currentVersion,
+      toVersion: targetVersion
+    });
+    return migratedMode;
+  }
+  compareVersions(a, b) {
+    const aParts = a.split(".").map(Number);
+    const bParts = b.split(".").map(Number);
+    for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+      const aPart = aParts[i] || 0;
+      const bPart = bParts[i] || 0;
+      if (aPart > bPart)
+        return 1;
+      if (aPart < bPart)
+        return -1;
+    }
+    return 0;
+  }
 };
 
 // plugins/editorial-engine/src/adapter-manager.ts
@@ -848,26 +1739,67 @@ var AdapterManager = class {
     try {
       const suitableAdapters = this.router.findSuitableAdapters(job);
       if (suitableAdapters.length === 0) {
-        throw new Error(`No suitable adapter found for job type: ${job.type}`);
+        const error = new Error(
+          `No suitable adapter found for job type: ${job.type}. Available adapters: ${this.adapters.size}, Registered adapter types: ${Array.from(this.adapters.values()).map((a) => a.supportedOperations).flat().join(", ")}`
+        );
+        this.eventBus.emit("adapter-execution-failed", {
+          jobId: job.id,
+          error: error.message,
+          availableAdapters: Array.from(this.adapters.keys()),
+          requestedJobType: job.type
+        });
+        throw error;
       }
       let lastError = null;
+      const attemptedAdapters = [];
       for (const adapter of suitableAdapters) {
+        attemptedAdapters.push(adapter.name);
         try {
+          this.router.updateAdapterLoad(adapter.name, this.getCurrentAdapterLoad(adapter.name));
           const result = await this.executeWithAdapter(adapter, job);
-          this.recordExecution(adapter.name, true, performance.now() - startTime);
+          const executionTime = performance.now() - startTime;
+          this.router.recordAdapterExecution(adapter.name, executionTime, true);
+          this.recordExecution(adapter.name, true, executionTime);
+          this.eventBus.emit("adapter-execution-success", {
+            jobId: job.id,
+            adapterName: adapter.name,
+            executionTime,
+            attemptedAdapters
+          });
           return result;
         } catch (error) {
+          const executionTime = performance.now() - startTime;
           console.warn(`Adapter ${adapter.name} failed for job ${job.id}:`, error);
           lastError = error;
-          this.recordExecution(adapter.name, false, performance.now() - startTime);
+          this.router.recordAdapterExecution(adapter.name, executionTime, false);
+          this.recordExecution(adapter.name, false, executionTime);
+          this.eventBus.emit("adapter-execution-attempt-failed", {
+            jobId: job.id,
+            adapterName: adapter.name,
+            error: error.message,
+            executionTime,
+            remainingAdapters: suitableAdapters.length - attemptedAdapters.length
+          });
+          continue;
         }
       }
-      throw lastError || new Error("All suitable adapters failed");
-    } catch (error) {
+      const finalError = new Error(
+        `All suitable adapters failed for job ${job.id}. Attempted adapters: ${attemptedAdapters.join(", ")}. Last error: ${(lastError == null ? void 0 : lastError.message) || "Unknown error"}`
+      );
       this.eventBus.emit("adapter-execution-failed", {
         jobId: job.id,
-        error: error.message
+        error: finalError.message,
+        attemptedAdapters,
+        lastError: lastError == null ? void 0 : lastError.message
       });
+      throw finalError;
+    } catch (error) {
+      if (error.message && !error.message.includes("No suitable adapter")) {
+        this.eventBus.emit("adapter-execution-failed", {
+          jobId: job.id,
+          error: error.message
+        });
+      }
       throw error;
     }
   }
@@ -919,6 +1851,42 @@ var AdapterManager = class {
       timestamp: Date.now()
     });
   }
+  getCurrentAdapterLoad(adapterName) {
+    const adapter = this.adapters.get(adapterName);
+    if (!adapter)
+      return 0;
+    const status = adapter.getStatus();
+    return status.currentLoad || 0;
+  }
+  // Enhanced adapter management methods
+  setRoutingStrategy(strategy) {
+    this.router.setRoutingStrategy(strategy);
+    this.eventBus.emit("routing-strategy-changed", {
+      newStrategy: strategy,
+      timestamp: Date.now()
+    });
+  }
+  getRoutingStrategy() {
+    return this.router.getRoutingStrategy();
+  }
+  getAdapterMetrics() {
+    return this.router.getAdapterMetrics();
+  }
+  getDetailedAdapterStatus() {
+    const detailedStatus = {};
+    for (const [name, adapter] of this.adapters) {
+      const status = adapter.getStatus();
+      const metrics = this.router.getAdapterMetrics()[name];
+      detailedStatus[name] = {
+        ...status,
+        metrics,
+        capabilities: adapter.capabilities,
+        supportedOperations: adapter.supportedOperations,
+        lastHealthCheck: status.lastHealthCheck || Date.now()
+      };
+    }
+    return detailedStatus;
+  }
   async cleanup() {
     this.healthMonitor.cleanup();
     for (const [name, adapter] of this.adapters) {
@@ -932,32 +1900,203 @@ var AdapterManager = class {
   }
 };
 var AdapterRouter = class {
-  constructor() {
+  constructor(routingStrategy = "priority") {
     this.adapters = [];
+    this.routingStrategy = "priority";
+    this.roundRobinIndex = 0;
+    this.adapterMetrics = /* @__PURE__ */ new Map();
+    this.routingStrategy = routingStrategy;
   }
   registerAdapter(adapter) {
     this.adapters.push(adapter);
-    this.adapters.sort((a, b) => {
-      return 0;
+    this.adapterMetrics.set(adapter.name, {
+      totalRequests: 0,
+      successfulRequests: 0,
+      averageResponseTime: 0,
+      currentLoad: 0,
+      lastUsed: 0,
+      priority: this.extractAdapterPriority(adapter)
     });
+    this.sortAdaptersByPriority();
   }
   findSuitableAdapters(job) {
-    return this.adapters.filter((adapter) => {
-      if (!adapter.supportedOperations.includes(job.type)) {
+    const compatibleAdapters = this.adapters.filter(
+      (adapter) => this.isAdapterCompatible(adapter, job)
+    );
+    if (compatibleAdapters.length === 0) {
+      return [];
+    }
+    switch (this.routingStrategy) {
+      case "priority":
+        return this.priorityRouting(compatibleAdapters, job);
+      case "round-robin":
+        return this.roundRobinRouting(compatibleAdapters);
+      case "load-balanced":
+        return this.loadBalancedRouting(compatibleAdapters, job);
+      default:
+        return compatibleAdapters;
+    }
+  }
+  isAdapterCompatible(adapter, job) {
+    var _a;
+    if (!adapter.supportedOperations.includes(job.type)) {
+      return false;
+    }
+    const status = adapter.getStatus();
+    if (!status.healthy) {
+      return false;
+    }
+    if (job.payload && typeof job.payload.text === "string") {
+      const textLength = job.payload.text.length;
+      if (textLength > adapter.capabilities.maxTextLength) {
         return false;
       }
-      const status = adapter.getStatus();
-      if (!status.healthy) {
-        return false;
-      }
-      if (job.payload && typeof job.payload.text === "string") {
-        const textLength = job.payload.text.length;
-        if (textLength > adapter.capabilities.maxTextLength) {
+    }
+    if (job.constraints && job.constraints.length > 0) {
+      const requiredCapabilities = this.extractRequiredCapabilities(job.constraints);
+      for (const capability of requiredCapabilities) {
+        if (!((_a = adapter.capabilities.supportedConstraints) == null ? void 0 : _a.includes(capability))) {
           return false;
         }
       }
-      return true;
+    }
+    if (job.timeout > adapter.capabilities.maxProcessingTime) {
+      return false;
+    }
+    return true;
+  }
+  priorityRouting(adapters, job) {
+    return adapters.sort((a, b) => {
+      const scoreA = this.calculateAdapterScore(a, job);
+      const scoreB = this.calculateAdapterScore(b, job);
+      return scoreB - scoreA;
     });
+  }
+  roundRobinRouting(adapters) {
+    if (adapters.length === 0)
+      return [];
+    const selectedAdapter = adapters[this.roundRobinIndex % adapters.length];
+    this.roundRobinIndex = (this.roundRobinIndex + 1) % adapters.length;
+    const result = [selectedAdapter];
+    result.push(...adapters.filter((a) => a.name !== selectedAdapter.name));
+    return result;
+  }
+  loadBalancedRouting(adapters, job) {
+    return adapters.sort((a, b) => {
+      const metricsA = this.adapterMetrics.get(a.name);
+      const metricsB = this.adapterMetrics.get(b.name);
+      const loadScoreA = this.calculateLoadScore(metricsA);
+      const loadScoreB = this.calculateLoadScore(metricsB);
+      return loadScoreB - loadScoreA;
+    });
+  }
+  calculateAdapterScore(adapter, job) {
+    const metrics = this.adapterMetrics.get(adapter.name);
+    if (!metrics)
+      return 0;
+    let score = metrics.priority * 10;
+    const successRate = metrics.totalRequests > 0 ? metrics.successfulRequests / metrics.totalRequests : 0.5;
+    score += successRate * 20;
+    const responseTimePenalty = Math.min(metrics.averageResponseTime / 1e3, 10);
+    score -= responseTimePenalty;
+    score -= metrics.currentLoad * 5;
+    const recencyBonus = Math.max(0, 10 - (Date.now() - metrics.lastUsed) / 1e3);
+    score += recencyBonus;
+    if (job.constraints) {
+      const compatibilityBonus = this.calculateCompatibilityBonus(adapter, job);
+      score += compatibilityBonus;
+    }
+    return Math.max(0, score);
+  }
+  calculateLoadScore(metrics) {
+    const successRate = metrics.totalRequests > 0 ? metrics.successfulRequests / metrics.totalRequests : 0.5;
+    const loadPenalty = metrics.currentLoad * 0.3;
+    const responsePenalty = metrics.averageResponseTime / 1e4;
+    return successRate * 100 - loadPenalty - responsePenalty;
+  }
+  calculateCompatibilityBonus(adapter, job) {
+    let bonus = 0;
+    const operationBonus = {
+      "grammar-check": adapter.name.includes("grammar") ? 5 : 0,
+      "style-enhancement": adapter.name.includes("style") ? 5 : 0,
+      "summarization": adapter.name.includes("summarize") ? 5 : 0
+    };
+    bonus += operationBonus[job.type] || 0;
+    if (job.constraints) {
+      const supportedConstraints = job.constraints.filter(
+        (constraint) => {
+          var _a;
+          return (_a = adapter.capabilities.supportedConstraints) == null ? void 0 : _a.includes(constraint.type);
+        }
+      );
+      bonus += supportedConstraints.length * 2;
+    }
+    return bonus;
+  }
+  extractRequiredCapabilities(constraints) {
+    const capabilities = /* @__PURE__ */ new Set();
+    for (const constraint of constraints) {
+      if (constraint.type === "PRESERVE_TONE") {
+        capabilities.add("tone-analysis");
+      }
+      if (constraint.type === "NO_CONTENT_CHANGE") {
+        capabilities.add("semantic-analysis");
+      }
+      if (constraint.type === "GRAMMAR_ONLY") {
+        capabilities.add("grammar-checking");
+      }
+      if (constraint.type === "STYLE_CONSISTENCY") {
+        capabilities.add("style-analysis");
+      }
+    }
+    return Array.from(capabilities);
+  }
+  extractAdapterPriority(adapter) {
+    var _a;
+    return ((_a = adapter.metadata) == null ? void 0 : _a.priority) || 5;
+  }
+  sortAdaptersByPriority() {
+    this.adapters.sort((a, b) => {
+      const metricsA = this.adapterMetrics.get(a.name);
+      const metricsB = this.adapterMetrics.get(b.name);
+      const priorityA = (metricsA == null ? void 0 : metricsA.priority) || 5;
+      const priorityB = (metricsB == null ? void 0 : metricsB.priority) || 5;
+      return priorityB - priorityA;
+    });
+  }
+  // Metrics update methods
+  recordAdapterExecution(adapterName, responseTime, success) {
+    const metrics = this.adapterMetrics.get(adapterName);
+    if (!metrics)
+      return;
+    metrics.totalRequests++;
+    if (success) {
+      metrics.successfulRequests++;
+    }
+    metrics.averageResponseTime = (metrics.averageResponseTime * (metrics.totalRequests - 1) + responseTime) / metrics.totalRequests;
+    metrics.lastUsed = Date.now();
+  }
+  updateAdapterLoad(adapterName, currentLoad) {
+    const metrics = this.adapterMetrics.get(adapterName);
+    if (metrics) {
+      metrics.currentLoad = currentLoad;
+    }
+  }
+  setRoutingStrategy(strategy) {
+    this.routingStrategy = strategy;
+    if (strategy === "round-robin") {
+      this.roundRobinIndex = 0;
+    }
+  }
+  getAdapterMetrics() {
+    const result = {};
+    for (const [name, metrics] of this.adapterMetrics) {
+      result[name] = { ...metrics };
+    }
+    return result;
+  }
+  getRoutingStrategy() {
+    return this.routingStrategy;
   }
 };
 var AdapterHealthMonitor = class {
@@ -1264,19 +2403,35 @@ var WritterrEventBus = class {
   constructor() {
     this.handlers = /* @__PURE__ */ new Map();
     this.debugMode = false;
+    this.errorCounts = /* @__PURE__ */ new Map();
+    this.circuitBreakerThreshold = 5;
+    this.disabledHandlers = /* @__PURE__ */ new Set();
   }
   emit(event, data) {
     if (this.debugMode) {
       console.debug(`[WritterrEventBus] Emitting: ${event}`, data);
+    }
+    if (this.disabledHandlers.has(event)) {
+      if (this.debugMode) {
+        console.warn(`[WritterrEventBus] Event ${event} is disabled due to circuit breaker`);
+      }
+      return;
     }
     const eventHandlers = this.handlers.get(event);
     if (eventHandlers) {
       const handlersArray = Array.from(eventHandlers);
       for (const handler of handlersArray) {
         try {
-          handler(data);
+          setTimeout(() => {
+            try {
+              handler(data);
+              this.resetErrorCount(event);
+            } catch (error) {
+              this.handleHandlerError(event, error, handler);
+            }
+          }, 0);
         } catch (error) {
-          console.error(`[WritterrEventBus] Error in handler for ${event}:`, error);
+          this.handleHandlerError(event, error, handler);
         }
       }
     }
@@ -1341,6 +2496,51 @@ var WritterrEventBus = class {
       this.handlers.clear();
     }
   }
+  // Error isolation and circuit breaker methods
+  handleHandlerError(event, error, handler) {
+    console.error(`[WritterrEventBus] Error in handler for ${event}:`, error);
+    const currentCount = this.errorCounts.get(event) || 0;
+    const newCount = currentCount + 1;
+    this.errorCounts.set(event, newCount);
+    if (newCount >= this.circuitBreakerThreshold) {
+      this.disabledHandlers.add(event);
+      console.warn(`[WritterrEventBus] Event ${event} disabled due to repeated failures (${newCount} errors)`);
+      if (event !== "system-error") {
+        this.emit("system-error", {
+          type: "circuit-breaker-activated",
+          event,
+          errorCount: newCount,
+          timestamp: Date.now()
+        });
+      }
+    }
+  }
+  resetErrorCount(event) {
+    if (this.errorCounts.has(event)) {
+      this.errorCounts.delete(event);
+    }
+  }
+  // Circuit breaker management
+  resetCircuitBreaker(event) {
+    this.disabledHandlers.delete(event);
+    this.errorCounts.delete(event);
+    if (this.debugMode) {
+      console.debug(`[WritterrEventBus] Circuit breaker reset for event: ${event}`);
+    }
+  }
+  getCircuitBreakerStatus() {
+    const status = {};
+    for (const [event, count] of this.errorCounts) {
+      status[event] = {
+        errorCount: count,
+        disabled: this.disabledHandlers.has(event)
+      };
+    }
+    return status;
+  }
+  setCircuitBreakerThreshold(threshold) {
+    this.circuitBreakerThreshold = Math.max(1, threshold);
+  }
 };
 
 // plugins/editorial-engine/src/main.ts
@@ -1351,8 +2551,15 @@ var EditorialEnginePlugin = class extends import_obsidian2.Plugin {
     this.eventBus = new WritterrEventBus();
     this.initializeComponents();
     this.setupPlatformAPI();
+    await this.setupDefaultAdapters();
     this.addSettingTab(new EditorialEngineSettingsTab(this.app, this));
     this.addStatusBarItem().setText("\u{1F4DD} Editorial Engine Ready");
+    this.eventBus.on("plugin-ready", async (data) => {
+      if (data.name === "track-edits" && !this.adapterManager.getAdapter("track-edits")) {
+        console.log("Track Edits plugin became available, registering adapter...");
+        await this.setupDefaultAdapters();
+      }
+    });
     console.log("Editorial Engine plugin loaded successfully");
   }
   async onunload() {
@@ -1387,6 +2594,7 @@ var EditorialEnginePlugin = class extends import_obsidian2.Plugin {
       process: this.processRequest.bind(this),
       registerMode: this.registerMode.bind(this),
       getModes: this.getModes.bind(this),
+      getEnabledModes: this.getEnabledModes.bind(this),
       getMode: this.getMode.bind(this),
       registerAdapter: this.registerAdapter.bind(this),
       getStatus: this.getStatus.bind(this),
@@ -1415,144 +2623,291 @@ var EditorialEnginePlugin = class extends import_obsidian2.Plugin {
     }
   }
   async loadDefaultModes() {
-    const defaultModes = [
-      {
-        id: "proofreader",
-        name: "Proofreader",
-        description: "Fix grammar, spelling, and basic clarity issues",
-        version: "1.0.0",
-        author: "Writerr Platform",
-        naturalLanguageRules: {
-          allowed: [
-            "Fix spelling and grammar errors",
-            "Correct punctuation mistakes",
-            "Fix basic clarity issues",
-            "Standardize formatting"
-          ],
-          forbidden: [
-            "Never change the author's voice or style",
-            "Don't alter the meaning or intent",
-            "Don't rewrite sentences unless grammatically incorrect",
-            "Don't change technical terminology"
-          ],
-          focus: [
-            "Focus on mechanical correctness",
-            "Preserve original phrasing when possible",
-            "Make minimal necessary changes"
-          ],
-          boundaries: [
-            "Change no more than 10% of the original text",
-            "Keep changes at word or phrase level",
-            "Maintain original sentence structure"
-          ]
-        },
-        examples: [
-          {
-            input: "The quick brown fox jump over the lazy dog.",
-            expectedBehavior: 'Fix "jump" to "jumps" for subject-verb agreement',
-            shouldNotDo: `Don't rewrite as "A fast brown fox leaps over the sleepy dog"`,
-            explanation: "Only fix the grammatical error, preserve original style"
+    const modesFolder = ".obsidian/plugins/editorial-engine/modes";
+    try {
+      const folderExists = await this.app.vault.adapter.exists(modesFolder);
+      if (!folderExists) {
+        await this.app.vault.adapter.mkdir(modesFolder);
+        console.log("Created Editorial Engine modes folder");
+        await this.createExampleModeFiles(modesFolder);
+      }
+      const files = await this.app.vault.adapter.list(modesFolder);
+      const modeFiles = files.files.filter((file) => file.endsWith(".md"));
+      let loadedCount = 0;
+      for (const filePath of modeFiles) {
+        try {
+          const modeContent = await this.app.vault.adapter.read(filePath);
+          const modeDefinition = this.parseModeFile(filePath, modeContent);
+          if (modeDefinition) {
+            await this.modeRegistry.registerMode(modeDefinition);
+            loadedCount++;
+            console.log(`Loaded mode from file: ${filePath}`);
           }
-        ],
-        constraints: [],
-        metadata: {
-          category: "basic-editing",
-          difficulty: "beginner",
-          tags: ["grammar", "spelling", "proofreading"],
-          useCase: "Final review before publishing"
-        }
-      },
-      {
-        id: "copy-editor",
-        name: "Copy Editor",
-        description: "Improve style, flow, and consistency while preserving voice",
-        version: "1.0.0",
-        author: "Writerr Platform",
-        naturalLanguageRules: {
-          allowed: [
-            "Improve sentence flow and rhythm",
-            "Enhance clarity and conciseness",
-            "Fix consistency issues",
-            "Suggest better word choices",
-            "Improve paragraph transitions"
-          ],
-          forbidden: [
-            "Don't change the author's fundamental voice",
-            "Don't alter factual content or arguments",
-            "Don't impose a different writing style",
-            "Don't change specialized terminology"
-          ],
-          focus: [
-            "Focus on readability and flow",
-            "Improve sentence variety",
-            "Enhance overall coherence"
-          ],
-          boundaries: [
-            "Change no more than 25% of the original text",
-            "Preserve key phrases and expressions",
-            "Maintain the document's tone and purpose"
-          ]
-        },
-        examples: [],
-        constraints: [],
-        metadata: {
-          category: "style-editing",
-          difficulty: "intermediate",
-          tags: ["style", "flow", "consistency"],
-          useCase: "Improving published drafts"
-        }
-      },
-      {
-        id: "developmental-editor",
-        name: "Developmental Editor",
-        description: "Enhance structure, argumentation, and content development",
-        version: "1.0.0",
-        author: "Writerr Platform",
-        naturalLanguageRules: {
-          allowed: [
-            "Suggest structural improvements",
-            "Recommend content additions",
-            "Identify gaps in argumentation",
-            "Propose better organization",
-            "Enhance logical flow between ideas"
-          ],
-          forbidden: [
-            "Don't rewrite the author's content",
-            "Don't change the fundamental argument",
-            "Don't impose different viewpoints",
-            "Don't make changes without explanation"
-          ],
-          focus: [
-            "Focus on big-picture structure",
-            "Improve logical progression",
-            "Enhance content effectiveness"
-          ],
-          boundaries: [
-            "Suggest rather than directly change",
-            "Provide explanations for recommendations",
-            "Preserve the author's intentions"
-          ]
-        },
-        examples: [],
-        constraints: [],
-        metadata: {
-          category: "content-editing",
-          difficulty: "advanced",
-          tags: ["structure", "development", "argumentation"],
-          useCase: "Early draft improvement"
+        } catch (error) {
+          console.error(`Failed to load mode file ${filePath}:`, error);
         }
       }
+      console.log(`Loaded ${loadedCount} modes from user-defined files`);
+    } catch (error) {
+      console.error("Failed to load modes from files, falling back to defaults:", error);
+      await this.loadFallbackMode();
+    }
+  }
+  async createExampleModeFiles(modesFolder) {
+    const exampleModes = [
+      {
+        filename: "proofreader.md",
+        content: `# Proofreader Mode
+
+**Description:** Fix grammar, spelling, and basic clarity issues without changing the author's voice
+
+## What I Can Do
+- Fix spelling and grammar errors
+- Correct punctuation mistakes
+- Fix basic clarity issues
+- Standardize formatting
+- Improve sentence structure for clarity
+
+## What I Cannot Do  
+- Never change the author's voice or style
+- Don't alter the meaning or intent
+- Don't rewrite sentences unless grammatically incorrect
+- Don't change technical terminology
+- Don't make major structural changes
+
+## Focus Areas
+- Focus on mechanical correctness
+- Preserve original phrasing when possible  
+- Make minimal necessary changes
+- Maintain the author's intended tone
+
+## Boundaries
+- Change no more than 10% of the original text
+- Keep changes at word or phrase level
+- Maintain original sentence structure when possible
+- Only fix clear errors, don't impose style preferences
+
+## Examples
+**Input:** "The quick brown fox jump over the lazy dog, it was very quick."
+**Expected:** "The quick brown fox jumps over the lazy dog. It was very quick."
+**Explanation:** Fix subject-verb agreement and run-on sentence, but preserve simple style.
+`
+      },
+      {
+        filename: "copy-editor.md",
+        content: `# Copy Editor Mode
+
+**Description:** Improve style, flow, and consistency while preserving the author's voice
+
+## What I Can Do
+- Improve sentence flow and rhythm
+- Enhance clarity and conciseness  
+- Fix consistency issues in tone and style
+- Suggest better word choices for precision
+- Improve paragraph transitions and connections
+- Eliminate redundancy and wordiness
+
+## What I Cannot Do
+- Don't change the author's fundamental voice
+- Don't alter factual content or arguments  
+- Don't impose a completely different writing style
+- Don't change specialized terminology without reason
+- Don't remove the author's personality from the text
+
+## Focus Areas
+- Focus on readability and flow
+- Improve sentence variety and rhythm
+- Enhance overall coherence and unity
+- Strengthen transitions between ideas
+- Maintain consistent tone throughout
+
+## Boundaries  
+- Change no more than 25% of the original text
+- Preserve key phrases and distinctive expressions
+- Maintain the document's purpose and audience
+- Keep the author's level of formality
+- Preserve technical accuracy
+
+## Examples
+**Input:** "The meeting was very productive and we got a lot done. We talked about many things. It was good."
+**Expected:** "The meeting proved highly productive, covering multiple key topics and yielding concrete progress on our objectives."  
+**Explanation:** Improved flow and precision while maintaining the positive, straightforward tone.
+`
+      },
+      {
+        filename: "my-custom-mode-template.md",
+        content: `# My Custom Mode Template
+
+**Description:** [Describe what this mode does - e.g., "Enhance creative writing for fantasy novels"]
+
+## What I Can Do
+- [List specific things this mode should do]
+- [Be specific about the type of improvements]
+- [Include any special focus areas]
+- [Add domain-specific capabilities if needed]
+
+## What I Cannot Do  
+- [List things this mode should never do]
+- [Include boundaries about voice/style preservation]  
+- [Specify content that shouldn't be changed]
+- [Add any domain-specific restrictions]
+
+## Focus Areas
+- [What should this mode prioritize?]
+- [What aspects of writing should it focus on?]
+- [Any specific techniques or approaches?]
+
+## Boundaries
+- [How much of the text can be changed? (e.g., "no more than 15%")]
+- [What level of changes are appropriate? (word/phrase/sentence/paragraph)]
+- [What must always be preserved?]
+- [Any specific limitations?]
+
+## Examples
+**Input:** [Provide a sample of text this mode would work on]
+**Expected:** [Show what the improved version should look like]
+**Explanation:** [Explain why these specific changes align with the mode's purpose]
+
+---
+**Instructions:** 
+1. Copy this template to create new modes
+2. Replace all bracketed placeholders with your specific requirements  
+3. Save as a new .md file in the modes folder
+4. The Editorial Engine will automatically detect and load your new mode
+`
+      }
     ];
-    for (const mode of defaultModes) {
+    for (const mode of exampleModes) {
+      const filePath = `${modesFolder}/${mode.filename}`;
       try {
-        await this.modeRegistry.registerMode(mode);
+        await this.app.vault.adapter.write(filePath, mode.content);
+        console.log(`Created example mode file: ${mode.filename}`);
       } catch (error) {
-        console.error(`Failed to register default mode ${mode.id}:`, error);
+        console.error(`Failed to create ${mode.filename}:`, error);
       }
     }
   }
-  setupDefaultAdapters() {
-    console.log("Editorial Engine ready for adapter registration");
+  parseModeFile(filePath, content) {
+    var _a;
+    try {
+      const lines = content.split("\n");
+      const modeId = ((_a = filePath.split("/").pop()) == null ? void 0 : _a.replace(".md", "")) || "unknown";
+      let modeName = "";
+      let description = "";
+      const allowed = [];
+      const forbidden = [];
+      const focus = [];
+      const boundaries = [];
+      let currentSection = "";
+      for (let line of lines) {
+        line = line.trim();
+        if (line.startsWith("# ") && !modeName) {
+          modeName = line.substring(2).replace(" Mode", "").trim();
+        }
+        if (line.startsWith("**Description:**")) {
+          description = line.replace("**Description:**", "").trim();
+        }
+        if (line.startsWith("## What I Can Do")) {
+          currentSection = "allowed";
+        } else if (line.startsWith("## What I Cannot Do")) {
+          currentSection = "forbidden";
+        } else if (line.startsWith("## Focus Areas")) {
+          currentSection = "focus";
+        } else if (line.startsWith("## Boundaries")) {
+          currentSection = "boundaries";
+        } else if (line.startsWith("## Examples") || line.startsWith("---")) {
+          currentSection = "";
+        }
+        if (line.startsWith("- ") && currentSection) {
+          const rule = line.substring(2).trim();
+          switch (currentSection) {
+            case "allowed":
+              allowed.push(rule);
+              break;
+            case "forbidden":
+              forbidden.push(rule);
+              break;
+            case "focus":
+              focus.push(rule);
+              break;
+            case "boundaries":
+              boundaries.push(rule);
+              break;
+          }
+        }
+      }
+      if (!modeName || !description || allowed.length === 0) {
+        console.warn(`Invalid mode file ${filePath}: missing required fields`);
+        return null;
+      }
+      return {
+        id: modeId,
+        name: modeName,
+        description,
+        version: "1.0.0",
+        author: "User Defined",
+        naturalLanguageRules: {
+          allowed,
+          forbidden,
+          focus,
+          boundaries
+        },
+        examples: [],
+        // Could be enhanced to parse examples from markdown
+        constraints: [],
+        // Will be compiled from natural language rules
+        metadata: {
+          category: "user-defined",
+          difficulty: "custom",
+          tags: [modeId],
+          useCase: description
+        }
+      };
+    } catch (error) {
+      console.error(`Failed to parse mode file ${filePath}:`, error);
+      return null;
+    }
+  }
+  async loadFallbackMode() {
+    const fallbackMode = {
+      id: "basic-proofreader",
+      name: "Basic Proofreader",
+      description: "Basic grammar and spelling fixes",
+      version: "1.0.0",
+      author: "Writerr Platform",
+      naturalLanguageRules: {
+        allowed: ["Fix spelling and grammar errors"],
+        forbidden: ["Don't change the author's voice"],
+        focus: ["Focus on mechanical correctness"],
+        boundaries: ["Make minimal necessary changes"]
+      },
+      examples: [],
+      constraints: [],
+      metadata: {
+        category: "fallback",
+        difficulty: "basic",
+        tags: ["grammar"],
+        useCase: "Emergency fallback mode"
+      }
+    };
+    await this.modeRegistry.registerMode(fallbackMode);
+    console.log("Loaded fallback proofreader mode");
+  }
+  async setupDefaultAdapters() {
+    var _a;
+    if ((_a = window.WriterrlAPI) == null ? void 0 : _a.trackEdits) {
+      try {
+        const { TrackEditsAdapter: TrackEditsAdapter2 } = await Promise.resolve().then(() => (init_track_edits_adapter(), track_edits_adapter_exports));
+        const trackEditsAdapter = new TrackEditsAdapter2();
+        await this.adapterManager.registerAdapter(trackEditsAdapter);
+        console.log("Track Edits adapter registered successfully");
+      } catch (error) {
+        console.error("Failed to register Track Edits adapter:", error);
+      }
+    } else {
+      console.log("Track Edits plugin not available, adapter registration skipped");
+    }
+    console.log("Editorial Engine adapter setup complete");
   }
   // Public API Methods
   async processRequest(intake) {
@@ -1577,6 +2932,10 @@ var EditorialEnginePlugin = class extends import_obsidian2.Plugin {
   }
   getModes() {
     return this.modeRegistry.getAllModes();
+  }
+  getEnabledModes() {
+    const allModes = this.modeRegistry.getAllModes();
+    return allModes.filter((mode) => this.settings.enabledModes.includes(mode.id));
   }
   getMode(id) {
     return this.modeRegistry.getMode(id);

@@ -39,7 +39,7 @@ export class EditorialEngineSettingsTab extends PluginSettingTab {
     this.plugin = plugin;
   }
 
-  display(): void {
+  async display(): Promise<void> {
     const { containerEl } = this;
 
     containerEl.empty();
@@ -50,7 +50,7 @@ export class EditorialEngineSettingsTab extends PluginSettingTab {
     this.createGeneralSettings(containerEl);
     
     // Mode Settings
-    this.createModeSettings(containerEl);
+    await this.createModeSettings(containerEl);
     
     // Adapter Settings
     this.createAdapterSettings(containerEl);
@@ -62,18 +62,25 @@ export class EditorialEngineSettingsTab extends PluginSettingTab {
   private createGeneralSettings(containerEl: HTMLElement): void {
     containerEl.createEl('h3', { text: 'General Settings' });
 
+    // Get available modes dynamically
+    const availableModes = this.plugin.modeRegistry.getAllModes();
+
     new Setting(containerEl)
       .setName('Default Mode')
       .setDesc('The default editing mode to use when no specific mode is selected')
-      .addDropdown(dropdown => dropdown
-        .addOption('proofreader', 'Proofreader')
-        .addOption('copy-editor', 'Copy Editor')
-        .addOption('developmental-editor', 'Developmental Editor')
-        .setValue(this.plugin.settings.defaultMode)
-        .onChange(async (value) => {
-          this.plugin.settings.defaultMode = value;
-          await this.plugin.saveSettings();
-        }));
+      .addDropdown(dropdown => {
+        // Add dynamic modes to dropdown
+        for (const mode of availableModes) {
+          dropdown.addOption(mode.id, mode.name);
+        }
+        
+        dropdown
+          .setValue(this.plugin.settings.defaultMode)
+          .onChange(async (value) => {
+            this.plugin.settings.defaultMode = value;
+            await this.plugin.saveSettings();
+          });
+      });
 
     new Setting(containerEl)
       .setName('Strict Mode')
@@ -98,7 +105,7 @@ export class EditorialEngineSettingsTab extends PluginSettingTab {
         }));
   }
 
-  private createModeSettings(containerEl: HTMLElement): void {
+  private async createModeSettings(containerEl: HTMLElement): Promise<void> {
     containerEl.createEl('h3', { text: 'Mode Configuration' });
 
     const modesContainer = containerEl.createDiv('modes-container');
@@ -109,19 +116,37 @@ export class EditorialEngineSettingsTab extends PluginSettingTab {
       margin: 10px 0;
     `;
 
-    const enabledModes = this.plugin.settings.enabledModes;
-    const allModes = [
-      { id: 'proofreader', name: 'Proofreader', desc: 'Grammar, spelling, and basic clarity fixes' },
-      { id: 'copy-editor', name: 'Copy Editor', desc: 'Style, flow, and consistency improvements' },
-      { id: 'developmental-editor', name: 'Developmental Editor', desc: 'Structure and content development' },
-      { id: 'academic-mode', name: 'Academic Mode', desc: 'Academic writing standards and conventions' },
-      { id: 'business-mode', name: 'Business Mode', desc: 'Professional business communication' }
-    ];
+    // Add info about file-based mode system
+    const infoEl = modesContainer.createEl('p', { 
+      text: 'Modes are loaded from .obsidian/plugins/editorial-engine/modes/ folder. Add or edit .md files to create custom modes.',
+      cls: 'setting-item-description'
+    });
+    infoEl.style.cssText = `
+      color: var(--text-muted);
+      font-size: 0.9em;
+      margin-bottom: 15px;
+      padding: 8px;
+      background: var(--background-secondary);
+      border-radius: 3px;
+    `;
 
-    for (const mode of allModes) {
+    const enabledModes = this.plugin.settings.enabledModes;
+    
+    // Get modes dynamically from the mode registry
+    const availableModes = this.plugin.modeRegistry.getAllModes();
+    
+    if (availableModes.length === 0) {
+      modesContainer.createEl('p', { 
+        text: 'No modes found. Add mode files to .obsidian/plugins/editorial-engine/modes/ folder.',
+        cls: 'setting-item-description'
+      });
+      return;
+    }
+
+    for (const mode of availableModes) {
       new Setting(modesContainer)
         .setName(mode.name)
-        .setDesc(mode.desc)
+        .setDesc(mode.description || `${mode.name} mode`)
         .addToggle(toggle => toggle
           .setValue(enabledModes.includes(mode.id))
           .onChange(async (value) => {

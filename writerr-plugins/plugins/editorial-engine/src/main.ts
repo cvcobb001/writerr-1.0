@@ -19,6 +19,7 @@ export interface EditorialEngineAPI {
   process(intake: IntakePayload): Promise<JobResult>;
   registerMode(mode: ModeDefinition): Promise<void>;
   getModes(): ModeDefinition[];
+  getEnabledModes(): ModeDefinition[];
   getMode(id: string): ModeDefinition | undefined;
   registerAdapter(adapter: any): void;
   getStatus(): any;
@@ -50,11 +51,22 @@ export default class EditorialEnginePlugin extends Plugin {
     // Set up platform integration
     this.setupPlatformAPI();
 
+    // Set up default adapters (Track Edits integration)
+    await this.setupDefaultAdapters();
+
     // Register settings tab
     this.addSettingTab(new EditorialEngineSettingsTab(this.app, this));
 
     // Add status bar
     this.addStatusBarItem().setText('📝 Editorial Engine Ready');
+
+    // Listen for Track Edits plugin loading (delayed registration)
+    this.eventBus.on('plugin-ready', async (data) => {
+      if (data.name === 'track-edits' && !this.adapterManager.getAdapter('track-edits')) {
+        console.log('Track Edits plugin became available, registering adapter...');
+        await this.setupDefaultAdapters();
+      }
+    });
 
     console.log('Editorial Engine plugin loaded successfully');
   }
@@ -114,6 +126,7 @@ export default class EditorialEnginePlugin extends Plugin {
       process: this.processRequest.bind(this),
       registerMode: this.registerMode.bind(this),
       getModes: this.getModes.bind(this),
+      getEnabledModes: this.getEnabledModes.bind(this),
       getMode: this.getMode.bind(this),
       registerAdapter: this.registerAdapter.bind(this),
       getStatus: this.getStatus.bind(this),
@@ -154,150 +167,324 @@ export default class EditorialEnginePlugin extends Plugin {
   }
 
   private async loadDefaultModes() {
-    // Load built-in editing modes
-    const defaultModes: ModeDefinition[] = [
-      {
-        id: 'proofreader',
-        name: 'Proofreader',
-        description: 'Fix grammar, spelling, and basic clarity issues',
-        version: '1.0.0',
-        author: 'Writerr Platform',
-        naturalLanguageRules: {
-          allowed: [
-            'Fix spelling and grammar errors',
-            'Correct punctuation mistakes',
-            'Fix basic clarity issues',
-            'Standardize formatting'
-          ],
-          forbidden: [
-            'Never change the author\'s voice or style',
-            'Don\'t alter the meaning or intent',
-            'Don\'t rewrite sentences unless grammatically incorrect',
-            'Don\'t change technical terminology'
-          ],
-          focus: [
-            'Focus on mechanical correctness',
-            'Preserve original phrasing when possible',
-            'Make minimal necessary changes'
-          ],
-          boundaries: [
-            'Change no more than 10% of the original text',
-            'Keep changes at word or phrase level',
-            'Maintain original sentence structure'
-          ]
-        },
-        examples: [
-          {
-            input: 'The quick brown fox jump over the lazy dog.',
-            expectedBehavior: 'Fix "jump" to "jumps" for subject-verb agreement',
-            shouldNotDo: 'Don\'t rewrite as "A fast brown fox leaps over the sleepy dog"',
-            explanation: 'Only fix the grammatical error, preserve original style'
+    // Load user-defined modes from markdown files in the modes folder
+    const modesFolder = '.obsidian/plugins/editorial-engine/modes';
+    
+    try {
+      // Check if modes folder exists, create if not
+      const folderExists = await this.app.vault.adapter.exists(modesFolder);
+      if (!folderExists) {
+        await this.app.vault.adapter.mkdir(modesFolder);
+        console.log('Created Editorial Engine modes folder');
+        
+        // Create initial example mode files
+        await this.createExampleModeFiles(modesFolder);
+      }
+      
+      // Load all .md files from the modes folder
+      const files = await this.app.vault.adapter.list(modesFolder);
+      const modeFiles = files.files.filter(file => file.endsWith('.md'));
+      
+      let loadedCount = 0;
+      for (const filePath of modeFiles) {
+        try {
+          const modeContent = await this.app.vault.adapter.read(filePath);
+          const modeDefinition = this.parseModeFile(filePath, modeContent);
+          
+          if (modeDefinition) {
+            await this.modeRegistry.registerMode(modeDefinition);
+            loadedCount++;
+            console.log(`Loaded mode from file: ${filePath}`);
           }
-        ],
-        constraints: [],
-        metadata: {
-          category: 'basic-editing',
-          difficulty: 'beginner',
-          tags: ['grammar', 'spelling', 'proofreading'],
-          useCase: 'Final review before publishing'
+        } catch (error) {
+          console.error(`Failed to load mode file ${filePath}:`, error);
         }
+      }
+      
+      console.log(`Loaded ${loadedCount} modes from user-defined files`);
+      
+    } catch (error) {
+      console.error('Failed to load modes from files, falling back to defaults:', error);
+      // Fallback to basic proofreader mode if file loading fails
+      await this.loadFallbackMode();
+    }
+  }
+
+  private async createExampleModeFiles(modesFolder: string) {
+    const exampleModes = [
+      {
+        filename: 'proofreader.md',
+        content: `# Proofreader Mode
+
+**Description:** Fix grammar, spelling, and basic clarity issues without changing the author's voice
+
+## What I Can Do
+- Fix spelling and grammar errors
+- Correct punctuation mistakes
+- Fix basic clarity issues
+- Standardize formatting
+- Improve sentence structure for clarity
+
+## What I Cannot Do  
+- Never change the author's voice or style
+- Don't alter the meaning or intent
+- Don't rewrite sentences unless grammatically incorrect
+- Don't change technical terminology
+- Don't make major structural changes
+
+## Focus Areas
+- Focus on mechanical correctness
+- Preserve original phrasing when possible  
+- Make minimal necessary changes
+- Maintain the author's intended tone
+
+## Boundaries
+- Change no more than 10% of the original text
+- Keep changes at word or phrase level
+- Maintain original sentence structure when possible
+- Only fix clear errors, don't impose style preferences
+
+## Examples
+**Input:** "The quick brown fox jump over the lazy dog, it was very quick."
+**Expected:** "The quick brown fox jumps over the lazy dog. It was very quick."
+**Explanation:** Fix subject-verb agreement and run-on sentence, but preserve simple style.
+`
       },
       {
-        id: 'copy-editor',
-        name: 'Copy Editor',
-        description: 'Improve style, flow, and consistency while preserving voice',
-        version: '1.0.0',
-        author: 'Writerr Platform',
-        naturalLanguageRules: {
-          allowed: [
-            'Improve sentence flow and rhythm',
-            'Enhance clarity and conciseness',
-            'Fix consistency issues',
-            'Suggest better word choices',
-            'Improve paragraph transitions'
-          ],
-          forbidden: [
-            'Don\'t change the author\'s fundamental voice',
-            'Don\'t alter factual content or arguments',
-            'Don\'t impose a different writing style',
-            'Don\'t change specialized terminology'
-          ],
-          focus: [
-            'Focus on readability and flow',
-            'Improve sentence variety',
-            'Enhance overall coherence'
-          ],
-          boundaries: [
-            'Change no more than 25% of the original text',
-            'Preserve key phrases and expressions',
-            'Maintain the document\'s tone and purpose'
-          ]
-        },
-        examples: [],
-        constraints: [],
-        metadata: {
-          category: 'style-editing',
-          difficulty: 'intermediate',
-          tags: ['style', 'flow', 'consistency'],
-          useCase: 'Improving published drafts'
-        }
+        filename: 'copy-editor.md', 
+        content: `# Copy Editor Mode
+
+**Description:** Improve style, flow, and consistency while preserving the author's voice
+
+## What I Can Do
+- Improve sentence flow and rhythm
+- Enhance clarity and conciseness  
+- Fix consistency issues in tone and style
+- Suggest better word choices for precision
+- Improve paragraph transitions and connections
+- Eliminate redundancy and wordiness
+
+## What I Cannot Do
+- Don't change the author's fundamental voice
+- Don't alter factual content or arguments  
+- Don't impose a completely different writing style
+- Don't change specialized terminology without reason
+- Don't remove the author's personality from the text
+
+## Focus Areas
+- Focus on readability and flow
+- Improve sentence variety and rhythm
+- Enhance overall coherence and unity
+- Strengthen transitions between ideas
+- Maintain consistent tone throughout
+
+## Boundaries  
+- Change no more than 25% of the original text
+- Preserve key phrases and distinctive expressions
+- Maintain the document's purpose and audience
+- Keep the author's level of formality
+- Preserve technical accuracy
+
+## Examples
+**Input:** "The meeting was very productive and we got a lot done. We talked about many things. It was good."
+**Expected:** "The meeting proved highly productive, covering multiple key topics and yielding concrete progress on our objectives."  
+**Explanation:** Improved flow and precision while maintaining the positive, straightforward tone.
+`
       },
       {
-        id: 'developmental-editor',
-        name: 'Developmental Editor',
-        description: 'Enhance structure, argumentation, and content development',
-        version: '1.0.0',
-        author: 'Writerr Platform',
-        naturalLanguageRules: {
-          allowed: [
-            'Suggest structural improvements',
-            'Recommend content additions',
-            'Identify gaps in argumentation',
-            'Propose better organization',
-            'Enhance logical flow between ideas'
-          ],
-          forbidden: [
-            'Don\'t rewrite the author\'s content',
-            'Don\'t change the fundamental argument',
-            'Don\'t impose different viewpoints',
-            'Don\'t make changes without explanation'
-          ],
-          focus: [
-            'Focus on big-picture structure',
-            'Improve logical progression',
-            'Enhance content effectiveness'
-          ],
-          boundaries: [
-            'Suggest rather than directly change',
-            'Provide explanations for recommendations',
-            'Preserve the author\'s intentions'
-          ]
-        },
-        examples: [],
-        constraints: [],
-        metadata: {
-          category: 'content-editing',
-          difficulty: 'advanced',
-          tags: ['structure', 'development', 'argumentation'],
-          useCase: 'Early draft improvement'
-        }
+        filename: 'my-custom-mode-template.md',
+        content: `# My Custom Mode Template
+
+**Description:** [Describe what this mode does - e.g., "Enhance creative writing for fantasy novels"]
+
+## What I Can Do
+- [List specific things this mode should do]
+- [Be specific about the type of improvements]
+- [Include any special focus areas]
+- [Add domain-specific capabilities if needed]
+
+## What I Cannot Do  
+- [List things this mode should never do]
+- [Include boundaries about voice/style preservation]  
+- [Specify content that shouldn't be changed]
+- [Add any domain-specific restrictions]
+
+## Focus Areas
+- [What should this mode prioritize?]
+- [What aspects of writing should it focus on?]
+- [Any specific techniques or approaches?]
+
+## Boundaries
+- [How much of the text can be changed? (e.g., "no more than 15%")]
+- [What level of changes are appropriate? (word/phrase/sentence/paragraph)]
+- [What must always be preserved?]
+- [Any specific limitations?]
+
+## Examples
+**Input:** [Provide a sample of text this mode would work on]
+**Expected:** [Show what the improved version should look like]
+**Explanation:** [Explain why these specific changes align with the mode's purpose]
+
+---
+**Instructions:** 
+1. Copy this template to create new modes
+2. Replace all bracketed placeholders with your specific requirements  
+3. Save as a new .md file in the modes folder
+4. The Editorial Engine will automatically detect and load your new mode
+`
       }
     ];
 
-    // Register each default mode
-    for (const mode of defaultModes) {
+    // Create each example mode file
+    for (const mode of exampleModes) {
+      const filePath = `${modesFolder}/${mode.filename}`;
       try {
-        await this.modeRegistry.registerMode(mode);
+        await this.app.vault.adapter.write(filePath, mode.content);
+        console.log(`Created example mode file: ${mode.filename}`);
       } catch (error) {
-        console.error(`Failed to register default mode ${mode.id}:`, error);
+        console.error(`Failed to create ${mode.filename}:`, error);
       }
     }
   }
 
-  private setupDefaultAdapters() {
-    // Track Edits adapter will be set up when Track Edits plugin loads
-    // For now, just ensure the adapter manager is ready
-    console.log('Editorial Engine ready for adapter registration');
+  private parseModeFile(filePath: string, content: string): ModeDefinition | null {
+    try {
+      const lines = content.split('\n');
+      const modeId = filePath.split('/').pop()?.replace('.md', '') || 'unknown';
+      
+      let modeName = '';
+      let description = '';
+      const allowed: string[] = [];
+      const forbidden: string[] = [];
+      const focus: string[] = [];
+      const boundaries: string[] = [];
+      
+      let currentSection = '';
+      
+      for (let line of lines) {
+        line = line.trim();
+        
+        // Extract title (mode name)
+        if (line.startsWith('# ') && !modeName) {
+          modeName = line.substring(2).replace(' Mode', '').trim();
+        }
+        
+        // Extract description
+        if (line.startsWith('**Description:**')) {
+          description = line.replace('**Description:**', '').trim();
+        }
+        
+        // Track current section
+        if (line.startsWith('## What I Can Do')) {
+          currentSection = 'allowed';
+        } else if (line.startsWith('## What I Cannot Do')) {
+          currentSection = 'forbidden';
+        } else if (line.startsWith('## Focus Areas')) {
+          currentSection = 'focus';
+        } else if (line.startsWith('## Boundaries')) {
+          currentSection = 'boundaries';
+        } else if (line.startsWith('## Examples') || line.startsWith('---')) {
+          currentSection = ''; // Stop processing at examples or end
+        }
+        
+        // Extract bullet points for current section
+        if (line.startsWith('- ') && currentSection) {
+          const rule = line.substring(2).trim();
+          switch (currentSection) {
+            case 'allowed':
+              allowed.push(rule);
+              break;
+            case 'forbidden':
+              forbidden.push(rule);
+              break;
+            case 'focus':
+              focus.push(rule);
+              break;
+            case 'boundaries':
+              boundaries.push(rule);
+              break;
+          }
+        }
+      }
+      
+      // Validate required fields
+      if (!modeName || !description || allowed.length === 0) {
+        console.warn(`Invalid mode file ${filePath}: missing required fields`);
+        return null;
+      }
+      
+      return {
+        id: modeId,
+        name: modeName,
+        description: description,
+        version: '1.0.0',
+        author: 'User Defined',
+        naturalLanguageRules: {
+          allowed,
+          forbidden,
+          focus,
+          boundaries
+        },
+        examples: [], // Could be enhanced to parse examples from markdown
+        constraints: [], // Will be compiled from natural language rules
+        metadata: {
+          category: 'user-defined',
+          difficulty: 'custom',
+          tags: [modeId],
+          useCase: description
+        }
+      };
+      
+    } catch (error) {
+      console.error(`Failed to parse mode file ${filePath}:`, error);
+      return null;
+    }
+  }
+
+  private async loadFallbackMode() {
+    // Minimal fallback mode if file loading fails completely
+    const fallbackMode: ModeDefinition = {
+      id: 'basic-proofreader',
+      name: 'Basic Proofreader',
+      description: 'Basic grammar and spelling fixes',
+      version: '1.0.0',
+      author: 'Writerr Platform',
+      naturalLanguageRules: {
+        allowed: ['Fix spelling and grammar errors'],
+        forbidden: ['Don\'t change the author\'s voice'],
+        focus: ['Focus on mechanical correctness'],
+        boundaries: ['Make minimal necessary changes']
+      },
+      examples: [],
+      constraints: [],
+      metadata: {
+        category: 'fallback',
+        difficulty: 'basic',
+        tags: ['grammar'],
+        useCase: 'Emergency fallback mode'
+      }
+    };
+    
+    await this.modeRegistry.registerMode(fallbackMode);
+    console.log('Loaded fallback proofreader mode');
+  }
+
+  private async setupDefaultAdapters() {
+    // Register Track Edits adapter if Track Edits plugin is available
+    if (window.WriterrlAPI?.trackEdits) {
+      try {
+        const { TrackEditsAdapter } = await import('./adapters/track-edits-adapter');
+        const trackEditsAdapter = new TrackEditsAdapter();
+        await this.adapterManager.registerAdapter(trackEditsAdapter);
+        console.log('Track Edits adapter registered successfully');
+      } catch (error) {
+        console.error('Failed to register Track Edits adapter:', error);
+      }
+    } else {
+      console.log('Track Edits plugin not available, adapter registration skipped');
+    }
+    
+    console.log('Editorial Engine adapter setup complete');
   }
 
   // Public API Methods
@@ -329,6 +516,11 @@ export default class EditorialEnginePlugin extends Plugin {
 
   public getModes(): ModeDefinition[] {
     return this.modeRegistry.getAllModes();
+  }
+
+  public getEnabledModes(): ModeDefinition[] {
+    const allModes = this.modeRegistry.getAllModes();
+    return allModes.filter(mode => this.settings.enabledModes.includes(mode.id));
   }
 
   public getMode(id: string): ModeDefinition | undefined {
