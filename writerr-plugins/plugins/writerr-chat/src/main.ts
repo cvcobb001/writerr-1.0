@@ -1,9 +1,18 @@
 import { Plugin, WorkspaceLeaf, TFile, Notice, Modal } from 'obsidian';
 import { WriterrlChatSettingsTab } from './settings';
 import { ChatView, VIEW_TYPE_CHAT } from './chat-view';
-import { ChatSession, ChatMessage, AIProvider, WriterrlGlobalAPI } from '@shared/types';
+import { ChatSession, ChatMessage, AIProvider, WriterrlGlobalAPI, IntakePayload } from '@shared/types';
 import { generateId } from '@shared/utils';
 import { AIProviderManager } from './ai-provider-manager';
+
+// Enhanced types for Editorial Engine integration
+interface ParsedMessage {
+  originalContent: string;
+  intent: 'chat' | 'edit' | 'improve' | 'analyze';
+  mode: string;
+  selection?: string;
+  hasEditingRequest: boolean;
+}
 
 interface WriterrlChatSettings {
   defaultProvider: string;
@@ -50,6 +59,9 @@ export default class WriterrlChatPlugin extends Plugin {
 
     this.aiProviderManager = new AIProviderManager(this.settings);
 
+    // Force load CSS styles
+    this.loadCustomStyles();
+
     // Initialize global API
     this.initializeGlobalAPI();
 
@@ -70,7 +82,253 @@ export default class WriterrlChatPlugin extends Plugin {
     // Load chat sessions
     await this.loadChatSessions();
 
+    // Listen for Editorial Engine availability
+    this.listenForEditorialEngine();
+
     console.log('Writerr Chat plugin loaded');
+  }
+
+  private loadCustomStyles(): void {
+    const styles = `
+/* Nuclear CSS - Override EVERYTHING */
+.writerr-send-button,
+.writerr-toolbar-button,
+.writerr-context-action,
+.context-add-button,
+.writerr-message-actions button,
+.chat-control-button {
+  background: none !important;
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  cursor: pointer !important;
+  color: var(--text-muted) !important;
+  transition: color 0.2s ease !important;
+}
+
+/* Send Button - Lifted off the edges */
+.writerr-send-button {
+  position: absolute !important;
+  right: 16px !important;
+  bottom: 16px !important;
+  padding: 8px !important;
+  border-radius: var(--radius-s) !important;
+}
+
+.writerr-send-button:hover:not(:disabled) {
+  color: var(--interactive-accent) !important;
+  background: var(--background-modifier-hover) !important;
+}
+
+.writerr-send-button:disabled {
+  color: var(--text-faint) !important;
+  cursor: not-allowed !important;
+}
+
+.writerr-send-icon {
+  width: 16px !important;
+  height: 16px !important;
+  stroke-width: 2 !important;
+}
+
+/* Bottom Toolbar - Larger Icons, Closer Together */
+.writerr-toolbar-left {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  margin-left: 8px !important;
+}
+
+/* Toolbar Right - Adjusted spacing for dropdowns */
+.toolbar-right {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  margin-right: 8px !important;
+}
+
+.writerr-toolbar-button {
+  padding: 8px !important;
+  border-radius: var(--radius-s) !important;
+}
+
+.writerr-toolbar-button:hover {
+  color: var(--text-normal) !important;
+  background: var(--background-modifier-hover) !important;
+}
+
+.writerr-toolbar-icon {
+  width: 18px !important;
+  height: 18px !important;
+  stroke-width: 2 !important;
+}
+
+/* Chat Input Container - NO BORDERS */
+.chat-input-container {
+  border-top: none !important;
+  border-bottom: none !important;
+  border: none !important;
+}
+
+.chat-message-input {
+  border: 1px solid var(--background-modifier-border) !important;
+  padding-right: 60px !important;
+}
+
+/* Context Area - Light Border Above */
+.context-header {
+  border-top: 1px solid var(--background-modifier-border) !important;
+  padding-top: 8px !important;
+}
+
+/* Header - NO CARET */
+.writerr-chat-header-left {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+}
+
+.writerr-mode-select-wrapper {
+  display: flex !important;
+  align-items: center !important;
+  cursor: pointer !important;
+}
+
+.writerr-mode-select {
+  background: none !important;
+  border: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  font-size: 18px !important;
+  font-weight: 500 !important;
+  color: var(--text-normal) !important;
+  cursor: pointer !important;
+  outline: none !important;
+  box-shadow: none !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+}
+
+/* REMOVE THE CARET COMPLETELY */
+.writerr-mode-caret {
+  display: none !important;
+}
+
+/* Token Counter - Force Monospace */
+.writerr-token-count {
+  font-size: var(--font-ui-smaller) !important;
+  color: var(--text-muted) !important;
+  font-variant-numeric: tabular-nums !important;
+  font-family: var(--font-monospace) !important;
+  font-feature-settings: "tnum" !important;
+  margin-right: 8px !important;
+}
+
+/* Context Add Button - Clean Plus */
+.context-add-button {
+  padding: 4px !important;
+  border-radius: var(--radius-s) !important;
+}
+
+.context-add-button:hover {
+  color: var(--text-normal) !important;
+  background: var(--background-modifier-hover) !important;
+}
+
+/* Context Action Button */
+.writerr-context-action {
+  padding: 4px !important;
+  position: absolute !important;
+  top: 8px !important;
+  right: 16px !important;
+  z-index: 10 !important;
+  border-radius: var(--radius-s) !important;
+}
+
+.writerr-context-action:hover {
+  color: var(--text-normal) !important;
+  background: var(--background-modifier-hover) !important;
+}
+
+.writerr-context-action:disabled {
+  opacity: 0.5 !important;
+  cursor: not-allowed !important;
+  pointer-events: none !important;
+}
+
+.writerr-context-action-icon {
+  width: 14px !important;
+  height: 14px !important;
+  stroke-width: 2 !important;
+}
+
+/* Message Icons */
+.writerr-message-icon {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 32px !important;
+  height: 32px !important;
+  flex-shrink: 0 !important;
+  color: var(--text-muted) !important;
+}
+
+.writerr-message-avatar {
+  width: 20px !important;
+  height: 20px !important;
+  stroke-width: 2 !important;
+}
+
+/* Message Actions */
+.writerr-message-actions {
+  display: flex !important;
+  gap: 4px !important;
+  margin-top: 6px !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+
+.writerr-message-actions button {
+  padding: 4px !important;
+  border-radius: var(--radius-s) !important;
+}
+
+.writerr-message-actions button:hover {
+  color: var(--text-normal) !important;
+  background: var(--background-modifier-hover) !important;
+}
+
+.writerr-action-icon {
+  width: 14px !important;
+  height: 14px !important;
+  stroke-width: 2 !important;
+}
+
+/* Chat Control Buttons - Header Icons */
+.chat-control-button {
+  padding: 8px !important;
+  border-radius: var(--radius-s) !important;
+}
+
+.chat-control-button:hover {
+  color: var(--text-normal) !important;
+  background: var(--background-modifier-hover) !important;
+}
+`;
+
+    // Remove any existing styles first
+    const existing = document.getElementById('writerr-chat-styles');
+    if (existing) existing.remove();
+
+    const styleEl = document.createElement('style');
+    styleEl.id = 'writerr-chat-styles';
+    styleEl.textContent = styles;
+    document.head.appendChild(styleEl);
+    
+    console.log('Writerr Chat: Fixed context button positioning and send icon spacing');
   }
 
   onunload() {
@@ -149,8 +407,9 @@ export default class WriterrlChatPlugin extends Plugin {
     }
 
     try {
-      // Primary approach: Use setViewState (modern Obsidian API)
-      const leaf = this.app.workspace.getLeaf(false);
+      // Open in right sidebar as per design reference
+      const leaf = this.app.workspace.getRightLeaf(false);
+      
       if (leaf) {
         await leaf.setViewState({
           type: VIEW_TYPE_CHAT,
@@ -160,29 +419,18 @@ export default class WriterrlChatPlugin extends Plugin {
         return;
       }
 
-      // Fallback 1: Force new leaf creation
-      const newLeaf = this.app.workspace.getLeaf(true);
-      if (newLeaf) {
-        await newLeaf.setViewState({
+      // Fallback: Create new leaf in right sidebar
+      const rightLeaf = this.app.workspace.getLeaf('split', 'right');
+      if (rightLeaf) {
+        await rightLeaf.setViewState({
           type: VIEW_TYPE_CHAT,
           active: true
         });
-        this.app.workspace.revealLeaf(newLeaf);
+        this.app.workspace.revealLeaf(rightLeaf);
         return;
       }
 
-      // Fallback 2: Create leaf by split
-      const splitLeaf = this.app.workspace.createLeafBySplit(this.app.workspace.activeLeaf);
-      if (splitLeaf) {
-        await splitLeaf.setViewState({
-          type: VIEW_TYPE_CHAT,
-          active: true
-        });
-        this.app.workspace.revealLeaf(splitLeaf);
-        return;
-      }
-
-      console.error('Failed to create chat view - no leaf creation method succeeded');
+      console.error('Failed to create chat view in sidebar');
 
     } catch (error) {
       console.error('Error opening chat view:', error);
@@ -223,19 +471,33 @@ export default class WriterrlChatPlugin extends Plugin {
     modal.open();
   }
 
-  async sendMessage(content: string, context?: string): Promise<void> {
+  async sendMessage(content: string, selectedMode?: string, context?: string): Promise<void> {
     if (!this.currentSession) {
       this.newChatSession();
     }
 
     if (!this.currentSession) return;
 
+    // Parse message for intent and mode selection
+    const parsedMessage = this.parseMessageIntent(content);
+    
+    // Override mode if explicitly provided from UI
+    if (selectedMode && selectedMode !== 'chat') {
+      parsedMessage.mode = selectedMode;
+    }
+
     // Add user message
     const userMessage: ChatMessage = {
       id: generateId(),
       role: 'user',
       content,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      metadata: {
+        intent: parsedMessage.intent,
+        requestedMode: parsedMessage.mode,
+        selectedMode: selectedMode,
+        hasSelection: !!parsedMessage.selection
+      }
     };
 
     this.currentSession.messages.push(userMessage);
@@ -247,20 +509,18 @@ export default class WriterrlChatPlugin extends Plugin {
     }
 
     try {
-      // Get AI response
-      const response = await this.aiProviderManager.sendMessage(
-        this.currentSession.messages,
-        fullContext
-      );
+      // Route based on selected mode from UI
+      if (selectedMode && selectedMode !== 'chat') {
+        // Use Editorial Engine for specific modes
+        await this.processWithEditorialEngine(parsedMessage, fullContext);
+      } else if (parsedMessage.intent === 'edit' || parsedMessage.intent === 'improve') {
+        // Fallback: Use Editorial Engine for detected editing intent
+        await this.processWithEditorialEngine(parsedMessage, fullContext);
+      } else {
+        // Standard chat processing (Chat mode or general conversation)
+        await this.processWithAIProvider(parsedMessage, fullContext);
+      }
 
-      const assistantMessage: ChatMessage = {
-        id: generateId(),
-        role: 'assistant',
-        content: response,
-        timestamp: Date.now()
-      };
-
-      this.currentSession.messages.push(assistantMessage);
       this.currentSession.updatedAt = Date.now();
 
       if (this.settings.autoSaveChats) {
@@ -270,10 +530,184 @@ export default class WriterrlChatPlugin extends Plugin {
       // Refresh chat view if open
       this.refreshChatView();
 
+      // Emit chat event
+      if (window.Writerr?.events) {
+        window.Writerr.events.emit('chat.response-ready', {
+          requestId: userMessage.id,
+          response: this.currentSession.messages[this.currentSession.messages.length - 1]
+        });
+      }
+
     } catch (error) {
       new Notice(`Error sending message: ${error.message}`);
       console.error('Chat error:', error);
+      
+      // Add error message to chat
+      const errorMessage: ChatMessage = {
+        id: generateId(),
+        role: 'assistant',
+        content: `I encountered an error: ${error.message}. Please try again.`,
+        timestamp: Date.now(),
+        metadata: {
+          error: true,
+          errorMessage: error.message
+        }
+      };
+      
+      this.currentSession.messages.push(errorMessage);
+      this.refreshChatView();
     }
+  }    // Get context from current file if requested\n    let fullContext = context;\n    if (!fullContext && this.settings.contextLines > 0) {\n      fullContext = await this.getDocumentContext();\n    }\n\n    try {\n      // Check if this should be processed through Editorial Engine\n      if (parsedMessage.intent === 'edit' || parsedMessage.intent === 'improve') {\n        await this.processWithEditorialEngine(parsedMessage, fullContext);\n      } else {\n        // Standard chat processing\n        await this.processWithAIProvider(parsedMessage, fullContext);\n      }\n\n      this.currentSession.updatedAt = Date.now();\n\n      if (this.settings.autoSaveChats) {\n        await this.saveChatSessions();\n      }\n\n      // Refresh chat view if open\n      this.refreshChatView();\n\n      // Emit chat event\n      if (window.Writerr?.events) {\n        window.Writerr.events.emit('chat.response-ready', {\n          requestId: userMessage.id,\n          response: this.currentSession.messages[this.currentSession.messages.length - 1]\n        });\n      }\n\n    } catch (error) {\n      new Notice(`Error sending message: ${error.message}`);\n      console.error('Chat error:', error);\n      \n      // Add error message to chat\n      const errorMessage: ChatMessage = {\n        id: generateId(),\n        role: 'assistant',\n        content: `I encountered an error: ${error.message}. Please try again.`,\n        timestamp: Date.now(),\n        metadata: {\n          error: true,\n          errorMessage: error.message\n        }\n      };\n      \n      this.currentSession.messages.push(errorMessage);\n      this.refreshChatView();\n    }\n  }
+
+  private parseMessageIntent(content: string): ParsedMessage {
+    const lowerContent = content.toLowerCase();
+    
+    // Extract potential text selection (common patterns)
+    const selectionMatch = content.match(/["']([^"']+)["']|`([^`]+)`/);
+    const selection = selectionMatch?.[1] || selectionMatch?.[2];
+    
+    // Extract mode requests
+    const modeMatch = content.match(/(?:use|with|in)\s+(proofreader|copy-editor|developmental-editor|creative-writing-assistant)\s+mode/i);
+    const requestedMode = modeMatch?.[1];
+    
+    // Determine intent based on keywords
+    let intent: 'chat' | 'edit' | 'improve' | 'analyze' = 'chat';
+    
+    if (lowerContent.includes('edit') || lowerContent.includes('fix') || lowerContent.includes('correct')) {
+      intent = 'edit';
+    } else if (lowerContent.includes('improve') || lowerContent.includes('enhance') || lowerContent.includes('rewrite')) {
+      intent = 'improve';
+    } else if (lowerContent.includes('analyze') || lowerContent.includes('review') || lowerContent.includes('check')) {
+      intent = 'analyze';
+    }
+    
+    return {
+      originalContent: content,
+      intent,
+      mode: requestedMode || this.settings.defaultMode || 'proofreader',
+      selection,
+      hasEditingRequest: intent !== 'chat'
+    };
+  }
+
+  private async processWithEditorialEngine(parsedMessage: ParsedMessage, context?: string): Promise<void> {
+    // Check if Editorial Engine is available
+    if (!window.Writerr?.editorial) {
+      throw new Error('Editorial Engine is not available. Please ensure the Editorial Engine plugin is loaded.');
+    }
+
+    // Emit processing event
+    if (window.Writerr.events) {
+      window.Writerr.events.emit('chat.request-processing', {
+        requestId: this.currentSession!.messages[this.currentSession!.messages.length - 1].id,
+        message: this.currentSession!.messages[this.currentSession!.messages.length - 1],
+        mode: parsedMessage.mode
+      });
+    }
+
+    try {
+      // Prepare Editorial Engine payload
+      const payload: IntakePayload = {
+        id: generateId(),
+        text: parsedMessage.selection || context || parsedMessage.originalContent,
+        originalText: parsedMessage.selection || context,
+        mode: parsedMessage.mode,
+        constraints: await this.getConstraintsForMode(parsedMessage.mode),
+        metadata: {
+          source: 'writerr-chat',
+          intent: parsedMessage.intent,
+          timestamp: Date.now(),
+          sessionId: this.currentSession!.id
+        }
+      };
+
+      // Process through Editorial Engine
+      const result = await window.Writerr.editorial.process(payload);
+
+      if (result.success) {
+        // Create assistant response with Editorial Engine results
+        const assistantMessage: ChatMessage = {
+          id: generateId(),
+          role: 'assistant',
+          content: this.formatEditorialEngineResponse(result, parsedMessage),
+          timestamp: Date.now(),
+          metadata: {
+            editorialEngineResult: true,
+            jobId: result.jobId,
+            mode: parsedMessage.mode,
+            processingTime: result.processingTime
+          }
+        };
+
+        this.currentSession!.messages.push(assistantMessage);
+      } else {
+        throw new Error(`Editorial Engine processing failed: ${result.errors?.map(e => e.message).join(', ')}`);
+      }
+    } catch (error) {
+      console.error('Editorial Engine processing error:', error);
+      throw error;
+    }
+  }
+
+  private async processWithAIProvider(parsedMessage: ParsedMessage, context?: string): Promise<void> {
+    // Standard AI provider processing for general chat
+    const response = await this.aiProviderManager.sendMessage(
+      this.currentSession!.messages,
+      context
+    );
+
+    const assistantMessage: ChatMessage = {
+      id: generateId(),
+      role: 'assistant',
+      content: response,
+      timestamp: Date.now(),
+      metadata: {
+        provider: this.settings.provider,
+        model: this.settings.model
+      }
+    };
+
+    this.currentSession!.messages.push(assistantMessage);
+  }
+
+  private formatEditorialEngineResponse(result: any, parsedMessage: ParsedMessage): string {
+    let response = '';
+
+    // Add mode indicator
+    response += `**${parsedMessage.mode.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase())} Analysis:**\n\n`;
+
+    if (result.result?.processedText) {
+      response += '**Processed Text:**\n';
+      response += `> ${result.result.processedText}\n\n`;
+    }
+
+    if (result.result?.changes && result.result.changes.length > 0) {
+      response += '**Changes Made:**\n';
+      for (const change of result.result.changes.slice(0, 5)) { // Limit to first 5 changes
+        response += `- **${change.type}** at position ${change.from}-${change.to}: "${change.text || change.removedText}"\n`;
+      }
+      
+      if (result.result.changes.length > 5) {
+        response += `- *... and ${result.result.changes.length - 5} more changes*\n`;
+      }
+      response += '\n';
+    }
+
+    if (result.metadata?.trackEditsSession) {
+      response += `*Changes have been applied to your document and are being tracked in session ${result.metadata.trackEditsSession}.*\n\n`;
+      response += '*You can accept or reject individual changes using the Track Edits side panel.*';
+    }
+
+    return response;
+  }
+
+  private async getConstraintsForMode(mode: string): Promise<any> {
+    // Get mode constraints from Editorial Engine
+    if (window.Writerr?.editorial) {
+      const modeDefinition = window.Writerr.editorial.getMode(mode);
+      return modeDefinition?.constraints || [];
+    }
+    return [];
   }
 
   private async getDocumentContext(): Promise<string | undefined> {
@@ -308,6 +742,60 @@ export default class WriterrlChatPlugin extends Plugin {
     const chatLeaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_CHAT)[0];
     if (chatLeaf && chatLeaf.view instanceof ChatView) {
       chatLeaf.view.refresh();
+    }
+  }
+
+  private listenForEditorialEngine() {
+    // Check for Editorial Engine availability on startup
+    setTimeout(() => {
+      if (window.Writerr?.editorial) {
+        this.refreshChatModes();
+      }
+    }, 1000);
+
+    // Listen for Editorial Engine platform-ready event
+    if (window.Writerr?.events) {
+      window.Writerr.events.on('platform-ready', (data: any) => {
+        if (data.plugin === 'editorial-engine') {
+          console.log('Editorial Engine detected, refreshing chat modes...');
+          this.refreshChatModes();
+        }
+      });
+
+      window.Writerr.events.on('mode-registered', () => {
+        this.refreshChatModes();
+      });
+
+      window.Writerr.events.on('mode-updated', () => {
+        this.refreshChatModes();
+      });
+
+      window.Writerr.events.on('mode-removed', () => {
+        this.refreshChatModes();
+      });
+    }
+
+    // Fallback: periodic check for Editorial Engine
+    const checkInterval = setInterval(() => {
+      if (window.Writerr?.editorial) {
+        this.refreshChatModes();
+        clearInterval(checkInterval);
+      }
+    }, 3000);
+
+    // Clear interval after 30 seconds to avoid indefinite checking
+    setTimeout(() => {
+      clearInterval(checkInterval);
+    }, 30000);
+  }
+
+  private refreshChatModes() {
+    // Find and refresh chat view modes
+    const chatLeaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_CHAT);
+    for (const leaf of chatLeaves) {
+      if (leaf.view instanceof ChatView) {
+        leaf.view.refreshModeOptions();
+      }
     }
   }
 

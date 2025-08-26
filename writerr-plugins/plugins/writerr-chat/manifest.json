@@ -8,5 +8,6 @@
   "authorUrl": "https://github.com/writerr-ai",
   "fundingUrl": "",
   "isDesktopOnly": false,
-  "js": "main.js"
+  "js": "main.js",
+  "styles": "styles.css"
 }

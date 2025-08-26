@@ -180,6 +180,63 @@ export interface WritterrPlatformAPI {
   };
 }
 
+// Event Bus Type Definitions
+export interface WritterrEventMap {
+  // Editorial Engine Events
+  'mode-registered': { mode: ModeDefinition };
+  'mode-updated': { mode: ModeDefinition };
+  'mode-removed': { modeId: string; mode: ModeDefinition };
+  'mode-migrated': { mode: ModeDefinition; fromVersion: string; toVersion: string };
+  'mode-changed': { oldModeId: string; newModeId: string };
+  'processing-started': { intakeId: string };
+  'processing-completed': { intakeId: string; result: JobResult };
+  'processing-failed': { intakeId: string; error: string };
+  'platform-ready': { plugin: string; api: any };
+
+  // Track Edits Events  
+  'track-edits.changes-applied': { 
+    changes: EditChange[];
+    documentId: string;
+    timestamp: number;
+  };
+  'track-edits.edit-accepted': {
+    editId: string;
+    change: EditChange;
+  };
+  'track-edits.edit-rejected': {
+    editId: string;
+    change: EditChange;
+  };
+
+  // Chat Events
+  'chat.request-processing': {
+    requestId: string;
+    message: ChatMessage;
+    mode?: string;
+  };
+  'chat.response-ready': {
+    requestId: string;
+    response: ChatMessage;
+  };
+
+  // Document Events
+  'document-switched': {
+    oldPath?: string;
+    newPath: string;
+    timestamp: number;
+  };
+  'document-modified': {
+    path: string;
+    changeCount: number;
+  };
+
+  // Plugin Lifecycle Events
+  'plugin-ready': { name: string };
+  'plugin-error': { name: string; error: string };
+}
+
+export type WritterrEventType = keyof WritterrEventMap;
+export type WritterrEventData<T extends WritterrEventType> = WritterrEventMap[T];
 declare global {
   interface Window {
     WriterrlAPI: WriterrlGlobalAPI;
