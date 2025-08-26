@@ -1,0 +1,12 @@
+{
+  "id": "editorial-engine",
+  "name": "Editorial Engine",
+  "version": "1.0.0",
+  "minAppVersion": "1.0.0",
+  "description": "Core constraint processing engine for AI editorial platform - manages rules, routing, and adapter coordination.",
+  "author": "Writerr AI Editorial Platform",
+  "authorUrl": "https://github.com/writerr-ai",
+  "fundingUrl": "",
+  "isDesktopOnly": false,
+  "js": "main.js"
+}

@@ -1,0 +1,212 @@
+/* Editorial Engine Plugin Styles */
+
+/* Settings tab styles */
+.editorial-engine-settings h3 {
+  margin-top: 20px;
+  margin-bottom: 10px;
+  color: var(--text-accent);
+  border-bottom: 1px solid var(--background-modifier-border);
+  padding-bottom: 5px;
+}
+
+.modes-container,
+.adapters-container {
+  background: var(--background-secondary);
+  border-radius: 6px;
+  padding: 15px;
+  margin: 10px 0;
+}
+
+.performance-monitor {
+  background: var(--background-secondary);
+  border-radius: 6px;
+  padding: 15px;
+  margin: 15px 0;
+}
+
+.performance-monitor h4 {
+  margin-bottom: 10px;
+  color: var(--text-normal);
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.metric-item {
+  padding: 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 3px;
+  background: var(--background-primary);
+}
+
+.metric-label {
+  font-size: 0.9em;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.metric-value {
+  font-weight: bold;
+  color: var(--text-normal);
+}
+
+/* Status indicators */
+.status-indicator {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+
+.status-indicator.healthy {
+  background-color: var(--color-green);
+}
+
+.status-indicator.warning {
+  background-color: var(--color-yellow);
+}
+
+.status-indicator.error {
+  background-color: var(--color-red);
+}
+
+/* Mode configuration */
+.mode-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--background-modifier-border-hover);
+}
+
+.mode-item:last-child {
+  border-bottom: none;
+}
+
+.mode-info {
+  flex: 1;
+}
+
+.mode-name {
+  font-weight: 500;
+  color: var(--text-normal);
+}
+
+.mode-description {
+  font-size: 0.9em;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* Adapter configuration */
+.adapter-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--background-modifier-border-hover);
+}
+
+.adapter-item:last-child {
+  border-bottom: none;
+}
+
+.adapter-info {
+  flex: 1;
+}
+
+.adapter-name {
+  font-weight: 500;
+  color: var(--text-normal);
+  display: flex;
+  align-items: center;
+}
+
+.adapter-status {
+  font-size: 0.8em;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* Performance alerts */
+.performance-alert {
+  padding: 8px 12px;
+  border-radius: 4px;
+  margin: 8px 0;
+  font-size: 0.9em;
+}
+
+.performance-alert.warning {
+  background-color: var(--background-modifier-error-hover);
+  border: 1px solid var(--color-yellow);
+  color: var(--text-normal);
+}
+
+.performance-alert.error {
+  background-color: var(--background-modifier-error);
+  border: 1px solid var(--color-red);
+  color: var(--text-normal);
+}
+
+/* Mode editor (for future enhancement) */
+.mode-editor {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 15px;
+  margin: 10px 0;
+}
+
+.natural-language-rules {
+  margin: 15px 0;
+}
+
+.rules-section {
+  margin: 10px 0;
+}
+
+.rules-section h5 {
+  margin-bottom: 5px;
+  color: var(--text-accent);
+  font-size: 0.9em;
+  text-transform: uppercase;
+}
+
+.rule-input {
+  width: 100%;
+  margin: 3px 0;
+  padding: 4px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 3px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: 0.9em;
+}
+
+.rule-input:focus {
+  border-color: var(--interactive-accent);
+  outline: none;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .metrics-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .mode-item,
+  .adapter-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .mode-info,
+  .adapter-info {
+    margin-bottom: 8px;
+  }
+}
