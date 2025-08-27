@@ -14,10 +14,28 @@ export interface ChatToolbarEvents {
   onModelProviderReady?: () => void;
 }
 
+import { BaseComponent, ComponentOptions } from './BaseComponent';
+import { Icons, createStyledIcon } from '../utils/icons';
+import { WriterMenu, WriterMenuFactory } from './menus/WriterMenu';
+
+interface ChatToolbarOptions extends ComponentOptions {
+  events: ChatToolbarEvents;
+}
+
+export interface ChatToolbarEvents {
+  onAddDocument: () => void;
+  onCopyChat: () => void;
+  onClearChat: () => void;
+  onModelChange: (model: string) => void;
+  onPromptChange: (prompt: string) => void;
+  onModelProviderReady?: () => void;
+}
+
 export class ChatToolbar extends BaseComponent {
   private events: ChatToolbarEvents;
   private statusIndicator: HTMLElement;
   private modelSelect: HTMLSelectElement;
+  private modelButton: HTMLButtonElement;
   private promptSelect: HTMLSelectElement;
   private tokenCounter: HTMLElement;
 
@@ -26,10 +44,10 @@ export class ChatToolbar extends BaseComponent {
     this.events = options.events;
   }
 
-  async render(): Promise<void> {
+  render(): void {
     this.createToolbarContainer();
     this.createLeftSection();
-    await this.createRightSection();
+    this.createRightSection();
   }
 
   private createToolbarContainer(): void {
@@ -77,7 +95,7 @@ export class ChatToolbar extends BaseComponent {
     );
   }
 
-  private async createRightSection(): Promise<void> {
+  private createRightSection(): void {
     const rightContainer = this.createElement('div', {
       cls: 'toolbar-right',
       styles: {
@@ -91,8 +109,8 @@ export class ChatToolbar extends BaseComponent {
       }
     });
 
-    // Prompt dropdown FIRST (switched order) - await async loading
-    await this.createPromptSelect(rightContainer);
+    // Prompt dropdown FIRST (switched order)
+    this.createPromptSelect(rightContainer);
     
     // Model dropdown SECOND (switched order) 
     this.createModelSelect(rightContainer);
@@ -112,7 +130,6 @@ export class ChatToolbar extends BaseComponent {
     this.addTooltip(button, tooltip);
   }
 
-
   private createModelSelect(parent: HTMLElement): void {
     const modelContainer = parent.createDiv();
     modelContainer.style.cssText = `
@@ -128,9 +145,9 @@ export class ChatToolbar extends BaseComponent {
     this.statusIndicator = modelContainer.createEl('div', { cls: 'status-indicator' });
     this.updateStatusIndicator();
 
-    // Model select - more responsive
-    this.modelSelect = modelContainer.createEl('select');
-    this.modelSelect.style.cssText = `
+    // Create model button for WriterMenu
+    const modelButton = modelContainer.createEl('button');
+    modelButton.style.cssText = `
       border: none !important;
       box-shadow: none !important;
       background: transparent !important;
@@ -140,16 +157,17 @@ export class ChatToolbar extends BaseComponent {
       color: var(--text-faint);
       cursor: pointer;
       outline: none;
-      appearance: none;
-      -webkit-appearance: none;
-      -moz-appearance: none;
       min-width: 0;
       max-width: 100px;
       width: 100px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      text-align: left;
     `;
+
+    // Set initial button text
+    modelButton.textContent = 'Select Model';
 
     // Add caret using centralized icon system
     const caret = modelContainer.createEl('div');
@@ -164,26 +182,110 @@ export class ChatToolbar extends BaseComponent {
       flex-shrink: 0;
     `;
 
-    this.populateModelOptions();
+    // Store button reference for updates
+    this.modelButton = modelButton;
+
+    // Set up click handler to show WriterMenu
+    modelButton.addEventListener('click', (event) => {
+      this.showModelMenu(event);
+    });
 
     // Restore saved selection
     if (this.plugin.settings.selectedModel) {
-      this.modelSelect.value = this.plugin.settings.selectedModel;
+      this.updateModelButtonText(this.plugin.settings.selectedModel);
     }
-
-    this.modelSelect.addEventListener('change', async () => {
-      // Save selection to settings
-      this.plugin.settings.selectedModel = this.modelSelect.value;
-      await this.plugin.saveSettings();
-      
-      this.events.onModelChange(this.modelSelect.value);
-      
-      // Refresh token counter with new model limits
-      await this.refreshTokenCounter();
-    });
   }
 
-  private async createPromptSelect(parent: HTMLElement): Promise<void> {
+  private showModelMenu(event: MouseEvent): void {
+    try {
+      // Get available providers and models using the working logic we already had
+      const app = (window as any).app;
+      const plugins = app?.plugins?.plugins;
+      const aiProvidersPlugin = plugins?.['ai-providers'];
+      
+      if (!aiProvidersPlugin) {
+        console.log('WriterMenu: No AI providers available');
+        return;
+      }
+
+      const aiProviders = aiProvidersPlugin.aiProviders;
+      if (!aiProviders?.providers) {
+        console.log('WriterMenu: No providers array found');
+        return;
+      }
+
+      // Build provider map with display names but keep IDs for selection
+      const providerMap: Record<string, Record<string, string[]>> = {};
+      const idToDisplayName: Record<string, string> = {};
+      
+      for (const provider of aiProviders.providers) {
+        const providerId = provider.id || provider.name || provider.type || 'unknown';
+        
+        // Pass the full provider object to getProviderDisplayName for better inference
+        const displayName = this.getProviderDisplayName(providerId, provider);
+        
+        // Store mapping
+        idToDisplayName[providerId] = displayName;
+        
+        const models = provider.models || provider.availableModels || provider.supportedModels || [];
+        
+        if (models.length > 0) {
+          const families = this.organizeModelsByFamily(models);
+          if (Object.keys(families).length > 0) {
+            providerMap[displayName] = families;
+            console.log(`WriterMenu: Added provider "${displayName}" with ${models.length} models`);
+          }
+        }
+      }
+
+      if (Object.keys(providerMap).length === 0) {
+        console.log('WriterMenu: No providers with models available');
+        return;
+      }
+
+      // Create WriterMenu with provider → family → model hierarchy
+      const menu = WriterMenuFactory.createModelMenu(
+        providerMap,
+        this.plugin.settings.selectedModel,
+        (providerDisplayName: string, model: string) => {
+          // Find the provider ID that corresponds to this display name
+          const providerId = Object.keys(idToDisplayName).find(id => 
+            idToDisplayName[id] === providerDisplayName
+          ) || providerDisplayName;
+          
+          const selection = `${providerId}:${model}`;
+          console.log(`WriterMenu: Selected ${providerDisplayName} - ${model} (${selection})`);
+
+          this.plugin.settings.selectedModel = selection;
+          this.plugin.saveSettings();
+          this.updateModelButtonText(selection);
+          this.events.onModelChange(selection);
+        }
+      );
+
+      menu.showAtMouseEvent(event);
+    } catch (error) {
+      console.error('WriterMenu: Error showing model menu:', error);
+    }
+  }
+
+  private updateModelButtonText(selection: string): void {
+    if (!this.modelButton) return;
+    
+    if (selection && selection.includes(':')) {
+      const [, model] = selection.split(':', 2);
+      this.modelButton.textContent = model;
+    } else {
+      this.modelButton.textContent = 'Select Model';
+    }
+  }
+
+  private getAvailableProvidersAndModels(): Record<string, Record<string, string[]>> {
+    // This method is no longer used - keeping for compatibility
+    return {};
+  }
+
+  private createPromptSelect(parent: HTMLElement): void {
     const promptContainer = parent.createDiv();
     promptContainer.style.cssText = `
       display: flex;
@@ -229,13 +331,13 @@ export class ChatToolbar extends BaseComponent {
       flex-shrink: 0;
     `;
 
-    // Load prompts asynchronously
-    await this.populatePromptOptions();
-
-    // Restore saved selection
-    if (this.plugin.settings.selectedPrompt) {
-      this.promptSelect.value = this.plugin.settings.selectedPrompt;
-    }
+    // Populate prompts asynchronously
+    this.populatePromptOptions().then(() => {
+      // Restore saved selection after prompts are loaded
+      if (this.plugin.settings.selectedPrompt) {
+        this.promptSelect.value = this.plugin.settings.selectedPrompt;
+      }
+    });
 
     this.promptSelect.addEventListener('change', async () => {
       // Save selection to settings
@@ -243,199 +345,44 @@ export class ChatToolbar extends BaseComponent {
       await this.plugin.saveSettings();
       
       this.events.onPromptChange(this.promptSelect.value);
-      
-      // Refresh token counter with new prompt tokens
-      await this.refreshTokenCounter();
     });
   }
 
   private createTokenCounter(parent: HTMLElement): void {
     this.tokenCounter = parent.createEl('span', { cls: 'writerr-token-count' });
-    
-    // Initialize with comprehensive token counting
-    this.refreshTokenCounter();
-    
-    // Refresh token counter when user types in input
-    this.setupInputTokenTracking();
+    this.updateTokenCounter(0, 90000);
   }
 
-  private setupInputTokenTracking(): void {
-    // Set up interval to periodically check input changes
-    setInterval(() => {
-      this.refreshTokenCounter();
-    }, 2000); // Update every 2 seconds
-  }
-
-  // Context button removed - belongs in context area header, not toolbar
-
-  private populateModelOptions(): void {
-    // Clear existing options
-    this.modelSelect.innerHTML = '';
-
-    // Try to get AI Providers plugin
-    const app = (window as any).app;
-    const plugins = app?.plugins?.plugins;
-    const aiProvidersPlugin = plugins?.['ai-providers'];
+  private getProviderDisplayName(providerId: string, provider?: any): string {
+    // First, try to get a display name from the provider object itself
+    if (provider) {
+      // Check if provider has a display name or readable name
+      if (provider.displayName && typeof provider.displayName === 'string') {
+        return provider.displayName;
+      }
+      
+      if (provider.name && typeof provider.name === 'string' && !provider.name.startsWith('id-')) {
+        return provider.name;
+      }
+      
+      // Check if the provider type gives us a clue
+      if (provider.type && typeof provider.type === 'string') {
+        const displayNames: Record<string, string> = {
+          'openai': 'OpenAI',
+          'anthropic': 'Anthropic', 
+          'google': 'Google',
+          'ollama': 'Local/Ollama',
+          'azure': 'Azure OpenAI'
+        };
+        
+        const typeDisplayName = displayNames[provider.type.toLowerCase()];
+        if (typeDisplayName) {
+          return typeDisplayName;
+        }
+      }
+    }
     
-    if (!aiProvidersPlugin) {
-        console.log('AI Providers plugin not found');
-        this.modelSelect.createEl('option', { 
-          value: '', 
-          text: 'AI Providers plugin not found'
-        });
-        return;
-    }
-
-    // Get the actual aiProviders SDK object
-    const aiProviders = aiProvidersPlugin.aiProviders;
-    
-    if (!aiProviders) {
-        console.log('AI Providers SDK not available on plugin object');
-        this.modelSelect.createEl('option', { 
-          value: '', 
-          text: 'AI Providers SDK not available'
-        });
-        return;
-    }
-
-    console.log('✅ Found AI Providers SDK:', aiProviders);
-    console.log('📋 AI Providers SDK methods:', Object.keys(aiProviders));
-
-    // Check if this has the execute method we need
-    if (typeof aiProviders.execute === 'function') {
-        console.log('✅ AI Providers SDK has execute method');
-    } else {
-        console.log('❌ AI Providers SDK missing execute method');
-    }
-
-    try {
-        // Get available providers and models from AI Providers SDK
-        const availableProviders = this.getAvailableProvidersAndModels(aiProviders);
-        
-        if (Object.keys(availableProviders).length === 0) {
-            console.log('No providers configured in AI Providers plugin');
-            this.modelSelect.createEl('option', { 
-              value: '', 
-              text: 'No models configured' 
-            });
-            return;
-        }
-
-        // Build flat hierarchical structure (optgroups cannot be nested)
-        for (const [provider, families] of Object.entries(availableProviders)) {
-            for (const [family, models] of Object.entries(families)) {
-                // Create one optgroup per provider+family combination
-                const groupLabel = `${provider} → ${family}`;
-                const familyGroup = this.modelSelect.createEl('optgroup', { label: groupLabel });
-                
-                (models as string[]).forEach(model => {
-                    familyGroup.createEl('option', { 
-                      value: `${provider}:${model}`, // Store provider:model for routing
-                      text: model // Display only model name (clean)
-                    });
-                });
-            }
-        }
-
-        console.log('Successfully populated model dropdown with provider → family grouping');
-
-    } catch (error) {
-        console.error('Error populating model options:', error);
-        this.modelSelect.createEl('option', { 
-          value: '', 
-          text: 'Error loading models' 
-        });
-    }
-}
-
-  private getAvailableProvidersAndModels(aiProviders: any): Record<string, Record<string, string[]>> {
-    try {
-        console.log('🔍 AI Providers plugin object:', aiProviders);
-        console.log('🔍 Available methods/properties:', Object.keys(aiProviders));
-        console.log('🔍 Plugin constructor:', aiProviders.constructor?.name);
-        
-        // Check for settings or configuration that might contain provider info
-        if (aiProviders.settings) {
-            console.log('📋 Plugin settings:', aiProviders.settings);
-        }
-        
-        // Try different possible API methods to get providers
-        let providers: any[] = [];
-        
-        const possibleMethods = [
-            'getProviders',
-            'getAvailableProviders', 
-            'listProviders',
-            'providers',
-            'getConfiguredProviders'
-        ];
-        
-        for (const method of possibleMethods) {
-            if (typeof aiProviders[method] === 'function') {
-                console.log(`📞 Trying method: ${method}()`);
-                try {
-                    providers = aiProviders[method]();
-                    console.log(`✅ ${method}() returned:`, providers);
-                    break;
-                } catch (err) {
-                    console.log(`❌ ${method}() failed:`, err);
-                }
-            } else if (aiProviders[method] !== undefined) {
-                console.log(`📋 Found property: ${method} =`, aiProviders[method]);
-                providers = Array.isArray(aiProviders[method]) ? aiProviders[method] : [aiProviders[method]];
-                break;
-            }
-        }
-        
-        // If no providers found through methods, try to extract from settings
-        if (providers.length === 0 && aiProviders.settings) {
-            const settings = aiProviders.settings;
-            if (settings.providers && Array.isArray(settings.providers)) {
-                providers = settings.providers;
-                console.log('📋 Using providers from settings:', providers);
-            } else if (settings.provider) {
-                providers = [settings.provider];
-                console.log('📋 Using single provider from settings:', providers);
-            }
-        }
-        
-        if (providers.length === 0) {
-            console.log('❌ No providers found in AI Providers plugin');
-            return {};
-        }
-        
-        const organized: Record<string, Record<string, string[]>> = {};
-        
-        for (const provider of providers) {
-            console.log('🔧 Processing provider:', provider);
-            
-            // Extract provider info - the structure might vary
-            const providerId = provider.id || provider.name || provider.type || 'unknown';
-            const providerName = this.getProviderDisplayName(providerId);
-            
-            // Try to get models from various possible properties
-            const models = provider.models || provider.availableModels || provider.supportedModels || [];
-            console.log(`📋 Models for ${providerId}:`, models);
-            
-            if (models.length > 0) {
-                const families = this.organizeModelsByFamily(models);
-                if (Object.keys(families).length > 0) {
-                    organized[providerName] = families;
-                    console.log(`✅ Added provider ${providerName} with families:`, families);
-                }
-            }
-        }
-        
-        console.log('🎯 Final organized providers:', organized);
-        return organized;
-        
-    } catch (error) {
-        console.error('❌ Error getting providers from AI Providers plugin:', error);
-        return {};
-    }
-}
-
-  private getProviderDisplayName(providerId: string): string {
+    // Fallback to static ID mapping
     const displayNames: Record<string, string> = {
       'openai': 'OpenAI',
       'anthropic': 'Anthropic', 
@@ -444,7 +391,35 @@ export class ChatToolbar extends BaseComponent {
       'azure': 'Azure OpenAI'
     };
     
-    return displayNames[providerId.toLowerCase()] || providerId;
+    const staticResult = displayNames[providerId.toLowerCase()];
+    if (staticResult) {
+      return staticResult;
+    }
+    
+    // If providerId looks like a dynamic ID (starts with "id-"), try to infer from context
+    if (providerId.startsWith('id-') && provider) {
+      // Try to find patterns in the provider object to guess the type
+      const providerStr = JSON.stringify(provider).toLowerCase();
+      
+      if (providerStr.includes('openai') || providerStr.includes('gpt')) {
+        console.log('WriterMenu: Inferred OpenAI from provider content for ID:', providerId);
+        return 'OpenAI';
+      } else if (providerStr.includes('anthropic') || providerStr.includes('claude')) {
+        console.log('WriterMenu: Inferred Anthropic from provider content for ID:', providerId);
+        return 'Anthropic';
+      } else if (providerStr.includes('google') || providerStr.includes('gemini')) {
+        console.log('WriterMenu: Inferred Google from provider content for ID:', providerId);
+        return 'Google';
+      } else if (providerStr.includes('ollama')) {
+        console.log('WriterMenu: Inferred Local/Ollama from provider content for ID:', providerId);
+        return 'Local/Ollama';
+      }
+      
+      console.log('WriterMenu: Could not infer provider type for ID:', providerId);
+    }
+    
+    // Return the original providerId as fallback
+    return providerId;
   }
 
   private organizeModelsByFamily(models: string[]): Record<string, string[]> {
@@ -496,36 +471,6 @@ export class ChatToolbar extends BaseComponent {
     }
     
     return families;
-}
-
-  public refreshModelOptions(): void {
-    // Re-populate model options from AI Providers plugin
-    this.populateModelOptions();
-  }
-
-  public setSelectedModel(providerAndModel: string): void {
-    // Set the selected model (format: "provider:model")
-    this.modelSelect.value = providerAndModel;
-  }
-
-  public getSelectedModel(): { provider: string; model: string } | null {
-    const value = this.modelSelect.value;
-    if (!value || !value.includes(':')) {
-      return null;
-    }
-    
-    const [provider, model] = value.split(':', 2);
-    return { provider, model };
-  }
-
-  public refreshAvailableModels(): void {
-    // Called when AI Providers plugin becomes available or providers change
-    this.refreshModelOptions();
-  }
-
-  private notifyModelProviderReady(): void {
-    // Emit event that model provider is ready
-    this.events.onModelProviderReady?.();
   }
 
   private async populatePromptOptions(): Promise<void> {
@@ -533,58 +478,62 @@ export class ChatToolbar extends BaseComponent {
     this.promptSelect.createEl('option', { value: '', text: 'Prompts' });
 
     try {
-      // Get all .md files in the Prompts folder
-      const promptFiles = this.plugin.app.vault.getMarkdownFiles()
-        .filter(file => file.path.startsWith('Prompts/'))
-        .sort((a, b) => a.basename.localeCompare(b.basename));
-
-      if (promptFiles.length === 0) {
-        console.log('No prompt files found in /Prompts/ folder, using defaults');
-        this.addDefaultPrompts();
-        return;
+      const pluginDir = this.plugin.manifest.dir;
+      const promptsPath = `${pluginDir}/prompts`;
+      
+      console.log(`🔍 Looking for prompts in: ${promptsPath}`);
+      
+      // Try using the file system adapter directly
+      const adapter = this.plugin.app.vault.adapter;
+      console.log(`📂 Vault adapter type:`, adapter.constructor.name);
+      
+      // Check if prompts directory exists using adapter
+      const promptsDirExists = await adapter.exists(promptsPath);
+      console.log(`📂 Prompts directory exists: ${promptsDirExists}`);
+      
+      if (promptsDirExists) {
+        // List files in the prompts directory using adapter
+        const promptFiles = await adapter.list(promptsPath);
+        console.log(`📋 Files in prompts directory:`, promptFiles);
+        
+        if (promptFiles.files && promptFiles.files.length > 0) {
+          const mdFiles = promptFiles.files.filter(file => file.endsWith('.md'));
+          console.log(`📋 MD files found: ${mdFiles.length}`, mdFiles);
+          
+          if (mdFiles.length > 0) {
+            console.log(`✅ Adding ${mdFiles.length} prompts to dropdown`);
+            
+            mdFiles.forEach(filePath => {
+              const fileName = filePath.split('/').pop() || filePath;
+              const baseName = fileName.replace('.md', '');
+              console.log(`   Adding: ${baseName} (${filePath})`);
+              
+              this.promptSelect.createEl('option', { 
+                value: filePath, 
+                text: baseName 
+              });
+            });
+            return;
+          }
+        }
       }
-
-      // Add prompts from files
-      for (const file of promptFiles) {
-        const displayName = this.formatPromptName(file.basename);
-        this.promptSelect.createEl('option', { 
-          value: file.path, 
-          text: displayName 
-        });
-      }
-
-      console.log(`✅ Loaded ${promptFiles.length} prompt files from /Prompts/ folder`);
-
-    } catch (error) {
-      console.error('Error loading prompts from folder:', error);
-      this.addDefaultPrompts();
-    }
-  }
-
-  private addDefaultPrompts(): void {
-    // Fallback prompts if folder loading fails
-    const defaultPrompts = [
-      'Creative Writing',
-      'Technical Writing', 
-      'Academic Style',
-      'Casual Tone',
-      'Professional'
-    ];
-
-    defaultPrompts.forEach(prompt => {
+      
+      // NO FALLBACK - if it doesn't work, it's broken and should be fixed
+      console.error(`❌ PROMPTS NOT FOUND - Plugin is broken! No prompts directory found at: ${promptsPath}`);
+      
+      // Add a clear error indicator
       this.promptSelect.createEl('option', { 
-        value: prompt.toLowerCase().replace(/\s+/g, '-'), 
-        text: prompt 
+        value: 'ERROR', 
+        text: '⚠️ PROMPTS NOT FOUND' 
       });
-    });
-  }
-
-  private formatPromptName(basename: string): string {
-    // Convert filename to display name
-    // e.g., "creative-writing" -> "Creative Writing"
-    return basename
-      .replace(/-/g, ' ')
-      .replace(/\b\w/g, l => l.toUpperCase());
+      
+    } catch (error) {
+      console.error('❌ CRITICAL ERROR loading prompts:', error);
+      this.promptSelect.createEl('option', { 
+        value: 'ERROR', 
+        text: '⚠️ LOAD ERROR' 
+      });
+    }
   }
 
   public updateStatusIndicator(): void {
@@ -633,636 +582,28 @@ export class ChatToolbar extends BaseComponent {
     this.tokenCounter.style.color = color;
   }
 
-  // Token calculation and management methods
-  
-  private estimateTokens(text: string): number {
-    const selectedModel = this.getSelectedModel();
-    if (!selectedModel) {
-        return Math.ceil(text.length / 4); // Fallback estimation
-    }
-
-    return this.calculateTokensForModel(text, selectedModel.model);
-}
-
-  private calculateTokensForModel(text: string, modelName: string): number {
-    // Clean and normalize text
-    const normalizedText = text.trim();
-    if (!normalizedText) return 0;
-
-    // Determine tokenizer type based on model
-    const tokenizerType = this.getTokenizerType(modelName);
-    
-    switch (tokenizerType) {
-      case 'cl100k':
-        return this.cl100kTokenizer(normalizedText);
-      case 'p50k':
-        return this.p50kTokenizer(normalizedText);
-      case 'gemini':
-        return this.geminiTokenizer(normalizedText);
-      case 'claude':
-        return this.claudeTokenizer(normalizedText);
-      default:
-        return this.fallbackTokenizer(normalizedText);
-    }
+  public refreshModelOptions(): void {
+    // Re-populate model options - no longer needed with WriterMenu approach
+    console.log('Model options refresh requested - using WriterMenu system');
   }
 
-  private getTokenizerType(modelName: string): string {
-    // OpenAI GPT-4, GPT-4o, GPT-5, o1, o3, o4 use cl100k_base
-    if (modelName.includes('gpt-4') || modelName.includes('gpt-5') || 
-        modelName.includes('gpt-4o') || modelName.includes('o1') || 
-        modelName.includes('o3') || modelName.includes('o4')) {
-      return 'cl100k';
-    }
-    
-    // OpenAI GPT-3.5 and older use p50k_base
-    if (modelName.includes('gpt-3') || modelName.includes('davinci') || 
-        modelName.includes('babbage') || modelName.includes('curie')) {
-      return 'p50k';
-    }
-    
-    // Google Gemini models
-    if (modelName.includes('gemini') || modelName.includes('models/gemini')) {
-      return 'gemini';
-    }
-    
-    // Anthropic Claude models
-    if (modelName.includes('claude')) {
-      return 'claude';
-    }
-    
-    return 'cl100k'; // Default to most common modern tokenizer
+  public setSelectedModel(providerAndModel: string): void {
+    this.plugin.settings.selectedModel = providerAndModel;
+    this.updateModelButtonText(providerAndModel);
   }
 
-  private cl100kTokenizer(text: string): number {
-    // cl100k_base tokenizer approximation for GPT-4/GPT-4o/GPT-5/o1/o3/o4
-    // This is more sophisticated than simple character counting
-    
-    // Step 1: Handle special tokens and patterns
-    let tokenCount = 0;
-    
-    // Count newlines (each newline is typically 1 token)
-    const newlines = (text.match(/\n/g) || []).length;
-    tokenCount += newlines;
-    
-    // Remove newlines for further processing
-    let processedText = text.replace(/\n/g, ' ');
-    
-    // Step 2: Split on whitespace and punctuation
-    const words = processedText.split(/\s+/).filter(word => word.length > 0);
-    
-    for (const word of words) {
-      // Handle punctuation-heavy text
-      if (/^[^\w\s]+$/.test(word)) {
-        // Pure punctuation - usually 1 token per character or small group
-        tokenCount += Math.ceil(word.length / 2);
-      } else if (word.length <= 3) {
-        // Short words are typically 1 token
-        tokenCount += 1;
-      } else if (word.length <= 7) {
-        // Medium words are typically 1-2 tokens
-        tokenCount += Math.ceil(word.length / 4);
-      } else {
-        // Long words get split more
-        tokenCount += Math.ceil(word.length / 3.5);
-      }
+  public getSelectedModel(): { provider: string; model: string } | null {
+    const value = this.plugin.settings.selectedModel;
+    if (!value || !value.includes(':')) {
+      return null;
     }
     
-    return Math.max(1, tokenCount);
+    const [provider, model] = value.split(':', 2);
+    return { provider, model };
   }
 
-  private p50kTokenizer(text: string): number {
-    // p50k_base tokenizer approximation for GPT-3.5 and older
-    // Slightly less efficient than cl100k
-    
-    const words = text.split(/\s+/).filter(word => word.length > 0);
-    let tokenCount = 0;
-    
-    for (const word of words) {
-      if (word.length <= 4) {
-        tokenCount += 1;
-      } else {
-        // p50k is less efficient, so slightly higher token count
-        tokenCount += Math.ceil(word.length / 3.8);
-      }
-    }
-    
-    // Add newline tokens
-    tokenCount += (text.match(/\n/g) || []).length;
-    
-    return Math.max(1, tokenCount);
-  }
-
-  private geminiTokenizer(text: string): number {
-    // Google Gemini tokenizer approximation
-    // Generally more efficient than GPT tokenizers
-    
-    const words = text.split(/\s+/).filter(word => word.length > 0);
-    let tokenCount = 0;
-    
-    for (const word of words) {
-      if (word.length <= 4) {
-        tokenCount += 1;
-      } else {
-        // Gemini is typically more efficient
-        tokenCount += Math.ceil(word.length / 4.2);
-      }
-    }
-    
-    // Handle newlines
-    tokenCount += (text.match(/\n/g) || []).length * 0.8; // Gemini handles newlines more efficiently
-    
-    return Math.max(1, Math.ceil(tokenCount));
-  }
-
-  private claudeTokenizer(text: string): number {
-    // Anthropic Claude tokenizer approximation
-    // Similar efficiency to GPT-4 family
-    
-    const words = text.split(/\s+/).filter(word => word.length > 0);
-    let tokenCount = 0;
-    
-    for (const word of words) {
-      if (word.length <= 3) {
-        tokenCount += 1;
-      } else {
-        tokenCount += Math.ceil(word.length / 3.7);
-      }
-    }
-    
-    // Handle newlines
-    tokenCount += (text.match(/\n/g) || []).length;
-    
-    return Math.max(1, tokenCount);
-  }
-
-  private fallbackTokenizer(text: string): number {
-    // Conservative fallback estimation
-    return Math.ceil(text.length / 4);
-  }
-
-  private async getContextTokens(): Promise<number> {
-    try {
-      // Get context documents from ContextArea
-      const contextContainer = document.querySelector('.context-documents');
-      if (!contextContainer) return 0;
-
-      let totalTokens = 0;
-      const documentChips = contextContainer.querySelectorAll('.context-document-chip');
-      
-      for (const chip of documentChips) {
-        const docName = chip.querySelector('span:nth-child(2)')?.textContent;
-        if (docName) {
-          // Find the file and calculate its token count
-          const files = this.plugin.app.vault.getMarkdownFiles();
-          const file = files.find(f => f.basename + '.md' === docName);
-          if (file) {
-            const content = await this.plugin.app.vault.read(file);
-            totalTokens += this.estimateTokens(content);
-          }
-        }
-      }
-
-      return totalTokens;
-    } catch (error) {
-      console.error('Error calculating context tokens:', error);
-      return 0;
-    }
-  }
-
-  private async getPromptTokens(): Promise<number> {
-    try {
-      const selectedPrompt = this.promptSelect.value;
-      if (!selectedPrompt || selectedPrompt === '') return 0;
-
-      // If it's a file path, read the file
-      if (selectedPrompt.startsWith('Prompts/') && selectedPrompt.endsWith('.md')) {
-        const file = this.plugin.app.vault.getAbstractFileByPath(selectedPrompt);
-        if (file) {
-          const content = await this.plugin.app.vault.read(file);
-          return this.estimateTokens(content);
-        }
-      }
-
-      // If it's a default prompt, estimate based on typical prompt length
-      return this.estimateTokens('System prompt for ' + selectedPrompt + ' writing style with detailed instructions and examples (approximately 200 words)');
-    } catch (error) {
-      console.error('Error calculating prompt tokens:', error);
-      return 50; // Reasonable fallback for system prompts
-    }
-  }
-
-  private async getCurrentMessageTokens(): Promise<number> {
-    try {
-      // Get current input text
-      const inputElement = document.querySelector('.chat-message-input') as HTMLTextAreaElement;
-      if (!inputElement) return 0;
-
-      return this.estimateTokens(inputElement.value);
-    } catch (error) {
-      console.error('Error calculating message tokens:', error);
-      return 0;
-    }
-  }
-
-  private async getModelMaxTokens(): Promise<number | null> {
-    try {
-        const selectedModel = this.getSelectedModel();
-        if (!selectedModel) {
-            return null;
-        }
-
-        const modelKey = `${selectedModel.provider}:${selectedModel.model}`;
-        
-        // Check cache first
-        const cachedLimit = this.getCachedTokenLimit(modelKey);
-        if (cachedLimit !== null) {
-            return cachedLimit;
-        }
-
-        console.log(`🔍 Looking up fresh token limit for model: ${selectedModel.model}`);
-
-        // Try to get dynamic model info from external sources
-        const dynamicLimit = await this.fetchDynamicModelInfo(selectedModel);
-        
-        // Cache the result (even if null) to avoid repeated failed requests
-        this.setCachedTokenLimit(modelKey, dynamicLimit);
-        
-        if (dynamicLimit) {
-            console.log(`✅ Found dynamic token limit for ${selectedModel.model}: ${dynamicLimit}`);
-            return dynamicLimit;
-        }
-
-        console.log(`🚫 No dynamic token limit available for ${selectedModel.provider}:${selectedModel.model}`);
-        return null;
-
-    } catch (error) {
-        console.error('❌ Error getting model max tokens:', error);
-        return null;
-    }
-}
-
-  private async fetchDynamicModelInfo(selectedModel: {provider: string, model: string}): Promise<number | null> {
-    try {
-        console.log(`🔍 Fetching dynamic info for ${selectedModel.provider}:${selectedModel.model}`);
-
-        // Method 1: Try model metadata service (community database)
-        console.log(`📊 Trying model metadata service...`);
-        const metadataService = await this.fetchFromModelMetadataService(selectedModel);
-        if (metadataService) {
-            console.log(`✅ Found via metadata service: ${metadataService}`);
-            return metadataService;
-        }
-
-        // Method 2: Try OpenRouter registry (comprehensive model database)
-        console.log(`🌐 Trying OpenRouter registry...`);
-        const openRouterData = await this.fetchFromOpenRouterRegistry(selectedModel);
-        if (openRouterData) {
-            console.log(`✅ Found via OpenRouter registry: ${openRouterData}`);
-            return openRouterData;
-        }
-
-        // Method 3: Try HuggingFace model hub
-        console.log(`🤗 Trying HuggingFace model hub...`);
-        const huggingFaceData = await this.fetchFromHuggingFace(selectedModel);
-        if (huggingFaceData) {
-            console.log(`✅ Found via HuggingFace: ${huggingFaceData}`);
-            return huggingFaceData;
-        }
-
-        console.log(`❌ All external services failed for ${selectedModel.model}`);
-        return null;
-    } catch (error) {
-        console.error('Error fetching dynamic model info:', error);
-        return null;
-    }
-  }
-
-  private async getProviderModelMetadata(selectedModel: {provider: string, model: string}): Promise<number | null> {
-    try {
-        const app = (window as any).app;
-        const aiProvidersPlugin = app?.plugins?.plugins?.['ai-providers'];
-        
-        if (!aiProvidersPlugin?.aiProviders) {
-            console.log(`❌ AI Providers plugin not available for metadata lookup`);
-            return null;
-        }
-
-        console.log(`🔍 AI Providers SDK full structure:`, aiProvidersPlugin.aiProviders);
-        
-        const provider = aiProvidersPlugin.aiProviders.providers?.find((p: any) => {
-            const providerId = p.id || p.name || p.type;
-            return providerId === selectedModel.provider;
-        });
-
-        if (!provider) {
-            console.log(`❌ Provider ${selectedModel.provider} not found`);
-            return null;
-        }
-
-        console.log(`✅ Full provider object:`, provider);
-        console.log(`🔍 All provider properties:`, Object.keys(provider));
-
-        // Let's see if there's any model-specific data anywhere
-        for (const key of Object.keys(provider)) {
-            const value = provider[key];
-            if (Array.isArray(value) && value.length > 0) {
-                console.log(`📋 Provider.${key} (array with ${value.length} items):`, value.slice(0, 3));
-                
-                // Check if any array items are objects with token info
-                const firstItem = value[0];
-                if (typeof firstItem === 'object' && firstItem !== null) {
-                    console.log(`🔍 First item in ${key}:`, firstItem);
-                    console.log(`🔍 Properties of first item:`, Object.keys(firstItem));
-                }
-            } else if (typeof value === 'object' && value !== null) {
-                console.log(`📋 Provider.${key} (object):`, value);
-                console.log(`🔍 Properties:`, Object.keys(value));
-            }
-        }
-
-        // Try a comprehensive search for our model name
-        console.log(`🔍 Searching entire provider object for model "${selectedModel.model}"`);
-        this.searchObjectForModel(provider, selectedModel.model, 'provider');
-
-        return null;
-    } catch (error) {
-        console.error('❌ Error getting provider model metadata:', error);
-        return null;
-    }
-  }
-
-  private searchObjectForModel(obj: any, modelName: string, path: string): void {
-    if (!obj || typeof obj !== 'object') return;
-    
-    for (const [key, value] of Object.entries(obj)) {
-      const currentPath = `${path}.${key}`;
-      
-      if (key === modelName || (typeof value === 'string' && value === modelName)) {
-        console.log(`🎯 Found model reference at ${currentPath}:`, value);
-      }
-      
-      if (Array.isArray(value)) {
-        value.forEach((item, index) => {
-          if (item === modelName) {
-            console.log(`🎯 Found model in array at ${currentPath}[${index}]:`, item);
-          } else if (typeof item === 'object' && item !== null) {
-            // Check if object contains our model name
-            const objStr = JSON.stringify(item);
-            if (objStr.includes(modelName)) {
-              console.log(`🎯 Found model in object at ${currentPath}[${index}]:`, item);
-            }
-          }
-        });
-      } else if (typeof value === 'object' && value !== null) {
-        // Recursively search nested objects (but limit depth to avoid infinite loops)
-        if (path.split('.').length < 5) {
-          this.searchObjectForModel(value, modelName, currentPath);
-        }
-      }
-    }
-  }
-
-  private async fetchFromProviderAPI(selectedModel: {provider: string, model: string}): Promise<number | null> {
-    try {
-        // For OpenAI models, try the models API endpoint
-        if (selectedModel.model.includes('gpt') || selectedModel.model.includes('o1') || 
-            selectedModel.model.includes('o3') || selectedModel.model.includes('o4')) {
-            
-            console.log(`🌐 Attempting OpenAI API fetch for ${selectedModel.model}`);
-            
-            const app = (window as any).app;
-            const aiProvidersPlugin = app?.plugins?.plugins?.['ai-providers'];
-            const provider = aiProvidersPlugin?.aiProviders?.providers?.find((p: any) => 
-                (p.id || p.name || p.type) === selectedModel.provider
-            );
-            
-            if (!provider) {
-                console.log(`❌ Provider ${selectedModel.provider} not found for API fetch`);
-                return null;
-            }
-            
-            console.log(`✅ Found provider for API:`, provider);
-            
-            if (!provider.apiKey || !provider.url) {
-                console.log(`❌ Missing apiKey or url:`, {
-                    hasApiKey: !!provider.apiKey,
-                    hasUrl: !!provider.url,
-                    url: provider.url
-                });
-                return null;
-            }
-            
-            const modelsUrl = `${provider.url}/models`;
-            console.log(`🔗 Fetching from: ${modelsUrl}`);
-            
-            try {
-                const response = await fetch(modelsUrl, {
-                    headers: {
-                        'Authorization': `Bearer ${provider.apiKey}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
-                
-                console.log(`📡 API Response status: ${response.status} ${response.statusText}`);
-                
-                if (response.ok) {
-                    const data = await response.json();
-                    console.log(`📋 API Response data structure:`, {
-                        hasData: !!data.data,
-                        dataLength: data.data?.length,
-                        firstModel: data.data?.[0]
-                    });
-                    
-                    const modelInfo = data.data?.find((m: any) => m.id === selectedModel.model);
-                    
-                    if (modelInfo) {
-                        console.log(`🎯 Found model info from API:`, modelInfo);
-                        console.log(`🔍 Model properties:`, Object.keys(modelInfo));
-                        
-                        if (modelInfo.context_length || modelInfo.max_tokens || modelInfo.context_window) {
-                            const limit = modelInfo.context_length || modelInfo.max_tokens || modelInfo.context_window;
-                            console.log(`✅ Found API limit for ${selectedModel.model}: ${limit}`);
-                            return limit;
-                        } else {
-                            console.log(`❌ No token limit fields found in API response`);
-                        }
-                    } else {
-                        console.log(`❌ Model ${selectedModel.model} not found in API response`);
-                        console.log(`📋 Available model IDs:`, data.data?.slice(0, 5).map((m: any) => m.id));
-                    }
-                } else {
-                    const errorText = await response.text();
-                    console.log(`❌ API Error response:`, errorText);
-                }
-            } catch (fetchError: any) {
-                console.log(`❌ API fetch failed for ${selectedModel.model}:`, fetchError.message);
-                console.log(`🔍 Error details:`, fetchError);
-            }
-        }
-
-        return null;
-    } catch (error) {
-        console.error('❌ Error fetching from provider API:', error);
-        return null;
-    }
-  }
-
-  private async fetchFromModelMetadataService(selectedModel: {provider: string, model: string}): Promise<number | null> {
-    try {
-        // Try a comprehensive model database API
-        const response = await fetch('https://api.models-database.dev/v1/models', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                model: selectedModel.model,
-                provider: selectedModel.provider
-            })
-        });
-
-        if (response.ok) {
-            const data = await response.json();
-            if (data.context_length) {
-                console.log(`📊 Model database returned: ${data.context_length}`);
-                return data.context_length;
-            }
-        }
-    } catch (error) {
-        console.log(`❌ Model database service failed:`, error.message);
-    }
-    return null;
-  }
-
-  private async fetchFromOpenRouterRegistry(selectedModel: {provider: string, model: string}): Promise<number | null> {
-    try {
-        console.log(`🌐 Fetching from OpenRouter models API...`);
-        
-        const response = await fetch('https://openrouter.ai/api/v1/models', {
-            headers: {
-                'Content-Type': 'application/json'
-            }
-        });
-        
-        if (response.ok) {
-            const data = await response.json();
-            console.log(`📋 OpenRouter returned ${data.data?.length} models`);
-            
-            // Try exact match first
-            let modelInfo = data.data?.find((m: any) => m.id === selectedModel.model);
-            
-            // Try partial matches for OpenAI models routed through OpenRouter
-            if (!modelInfo && selectedModel.model.includes('gpt')) {
-                modelInfo = data.data?.find((m: any) => 
-                    m.id.includes(selectedModel.model) || 
-                    m.id.endsWith('/' + selectedModel.model) ||
-                    m.id === 'openai/' + selectedModel.model
-                );
-            }
-            
-            if (modelInfo) {
-                console.log(`🎯 Found OpenRouter model:`, modelInfo);
-                if (modelInfo.context_length) {
-                    console.log(`🌐 OpenRouter registry returned: ${modelInfo.context_length}`);
-                    return modelInfo.context_length;
-                }
-            } else {
-                console.log(`❌ Model ${selectedModel.model} not found in OpenRouter registry`);
-            }
-        } else {
-            console.log(`❌ OpenRouter API error: ${response.status}`);
-        }
-    } catch (error) {
-        console.log(`❌ OpenRouter registry failed:`, error.message);
-    }
-    return null;
-  }
-
-  private async fetchFromHuggingFace(selectedModel: {provider: string, model: string}): Promise<number | null> {
-    try {
-        // For models that might be on HuggingFace
-        const modelPath = selectedModel.model.includes('/') ? selectedModel.model : `openai/${selectedModel.model}`;
-        console.log(`🤗 Checking HuggingFace for: ${modelPath}`);
-        
-        const response = await fetch(`https://huggingface.co/api/models/${modelPath}`, {
-            headers: {
-                'Content-Type': 'application/json'
-            }
-        });
-        
-        if (response.ok) {
-            const data = await response.json();
-            console.log(`🤗 HuggingFace model data:`, data);
-            
-            // Check various possible fields for context length
-            const contextLength = data.config?.max_position_embeddings || 
-                                 data.config?.n_positions ||
-                                 data.config?.context_length ||
-                                 data.context_length;
-                                 
-            if (contextLength) {
-                console.log(`🤗 HuggingFace returned: ${contextLength}`);
-                return contextLength;
-            }
-        } else {
-            console.log(`❌ HuggingFace API error: ${response.status}`);
-        }
-    } catch (error) {
-        console.log(`❌ HuggingFace failed:`, error.message);
-    }
-    return null;
-  }
-
-  // Cache for token limits to avoid repeated API calls
-  private static tokenLimitCache = new Map<string, {limit: number | null, timestamp: number}>();
-  private static CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
-
-  private getCachedTokenLimit(modelKey: string): number | null {
-    const cached = ChatToolbar.tokenLimitCache.get(modelKey);
-    if (cached && (Date.now() - cached.timestamp) < ChatToolbar.CACHE_DURATION) {
-      console.log(`💾 Using cached token limit for ${modelKey}: ${cached.limit}`);
-      return cached.limit;
-    }
-    return null;
-  }
-
-  private setCachedTokenLimit(modelKey: string, limit: number | null): void {
-    ChatToolbar.tokenLimitCache.set(modelKey, {
-      limit,
-      timestamp: Date.now()
-    });
-    console.log(`💾 Cached token limit for ${modelKey}: ${limit}`);
-  }
-
-  public async refreshTokenCounter(): Promise<void> {
-    try {
-      const [contextTokens, promptTokens, messageTokens, maxTokens] = await Promise.all([
-        this.getContextTokens(),
-        this.getPromptTokens(), 
-        this.getCurrentMessageTokens(),
-        this.getModelMaxTokens()
-      ]);
-
-      const totalUsed = contextTokens + promptTokens + messageTokens;
-      
-      if (maxTokens === null) {
-        // Cannot determine model limit - show used tokens only
-        console.log(`Token calculation: Context(${contextTokens}) + Prompt(${promptTokens}) + Message(${messageTokens}) = ${totalUsed} (limit unknown)`);
-        this.tokenCounter.textContent = `${totalUsed.toLocaleString()} tokens`;
-        this.tokenCounter.style.color = 'var(--text-faint)';
-        this.tokenCounter.title = 'Token count - model limit unknown';
-      } else {
-        // Normal display with known limits
-        console.log(`Token calculation: Context(${contextTokens}) + Prompt(${promptTokens}) + Message(${messageTokens}) = ${totalUsed}/${maxTokens}`);
-        this.updateTokenCounter(totalUsed, maxTokens);
-      }
-
-    } catch (error) {
-      console.error('Error refreshing token counter:', error);
-      // Show error state
-      this.tokenCounter.textContent = 'Token count error';
-      this.tokenCounter.style.color = 'var(--text-error)';
-      this.tokenCounter.title = 'Error calculating token count';
-    }
+  public refreshAvailableModels(): void {
+    // Called when AI Providers plugin becomes available or providers change
+    console.log('Available models refresh requested - using WriterMenu system');
   }
 }

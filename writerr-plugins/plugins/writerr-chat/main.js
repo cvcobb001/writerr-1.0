@@ -315,7 +315,7 @@ __export(main_exports, {
   default: () => WriterrlChatPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian4 = require("obsidian");
+var import_obsidian5 = require("obsidian");
 
 // plugins/writerr-chat/src/settings.ts
 var import_obsidian = require("obsidian");
@@ -425,7 +425,7 @@ var WriterrlChatSettingsTab = class extends import_obsidian.PluginSettingTab {
 };
 
 // plugins/writerr-chat/src/chat-view.ts
-var import_obsidian3 = require("obsidian");
+var import_obsidian4 = require("obsidian");
 
 // plugins/writerr-chat/src/components/BaseComponent.ts
 var BaseComponent = class {
@@ -1655,6 +1655,297 @@ var ChatInput = class extends BaseComponent {
   }
 };
 
+// plugins/writerr-chat/src/components/menus/WriterMenu.ts
+var import_obsidian3 = require("obsidian");
+var WriterMenu = class _WriterMenu {
+  constructor(options = {}) {
+    this.menu = new import_obsidian3.Menu();
+    this.options = {
+      style: "refined",
+      spacing: "comfortable",
+      minWidth: 280,
+      ...options
+    };
+    const styleClass = `writerr-menu-${this.options.style}`;
+    const spacingClass = `writerr-menu-${this.options.spacing}`;
+    const customClass = this.options.className || "";
+    this.options.className = [styleClass, spacingClass, customClass].filter(Boolean).join(" ");
+    const isSubmenu = customClass.includes("writerr-submenu");
+    if (!isSubmenu) {
+      const originalShow = this.menu.showAtMouseEvent.bind(this.menu);
+      const originalShowAtPosition = this.menu.showAtPosition.bind(this.menu);
+      this.menu.showAtMouseEvent = (event) => {
+        const result = originalShow(event);
+        this.applyRefinedStyling();
+        return result;
+      };
+      this.menu.showAtPosition = (position) => {
+        const result = originalShowAtPosition(position);
+        this.applyRefinedStyling();
+        return result;
+      };
+    }
+  }
+  /**
+   * Enhanced debug method to identify actual menu DOM elements
+   */
+  applyRefinedStyling() {
+    console.log("\u{1F3A8} Menu styling removed - using clean defaults");
+  }
+  /**
+   * Add a menu item with optional callback
+   */
+  addItem(title, callback) {
+    this.menu.addItem((item) => {
+      item.setTitle(title);
+      if (callback) {
+        item.onClick(callback);
+      }
+    });
+    return this;
+  }
+  /**
+   * Add a menu item with an icon
+   */
+  addItemWithIcon(title, icon, callback) {
+    this.menu.addItem((item) => {
+      item.setTitle(title);
+      if (icon) {
+        item.setIcon(icon);
+      }
+      if (callback) {
+        item.onClick(callback);
+      }
+    });
+    return this;
+  }
+  /**
+   * Add a checked menu item (for current selections)
+   */
+  addCheckedItem(title, checked = false, callback) {
+    this.menu.addItem((item) => {
+      item.setTitle(title);
+      if (checked) {
+        item.setChecked(true);
+      }
+      if (callback) {
+        item.onClick(callback);
+      }
+    });
+    return this;
+  }
+  /**
+   * Add a submenu with nested items (simplified for now)
+   * Note: Full nested submenus may require a different approach with Obsidian's API
+   */
+  /**
+   * Add a submenu with nested items using Obsidian's native setSubmenu() API
+   */
+  addSubmenu(title, builder) {
+    this.menu.addItem((item) => {
+      item.setTitle(title);
+      const obsidianSubmenu = item.setSubmenu();
+      const writerSubmenu = new _WriterMenu({
+        ...this.options,
+        className: `${this.options.className || ""} writerr-submenu`.trim()
+      });
+      writerSubmenu.menu = obsidianSubmenu;
+      builder(writerSubmenu);
+      setTimeout(() => {
+        const submenuElement = writerSubmenu.menu.dom;
+        if (submenuElement instanceof HTMLElement) {
+          submenuElement.style.setProperty("position", "absolute", "important");
+          submenuElement.style.setProperty("left", "100%", "important");
+          submenuElement.style.setProperty("top", "0", "important");
+          submenuElement.style.setProperty("margin-left", "2px", "important");
+          console.log("\u{1F527} Fixed submenu positioning to prevent overlap");
+        }
+      }, 0);
+    });
+    return this;
+  }
+  /**
+   * Add a separator line
+   */
+  addSeparator() {
+    this.menu.addSeparator();
+    return this;
+  }
+  /**
+   * Add a disabled item (for category headers or unavailable options)
+   */
+  addDisabledItem(title) {
+    this.menu.addItem((item) => {
+      item.setTitle(title);
+      item.setDisabled(true);
+    });
+    return this;
+  }
+  /**
+   * Set the currently selected item (will be highlighted)
+   */
+  setCurrentSelection(selection) {
+    this.currentSelection = selection;
+    return this;
+  }
+  /**
+   * Show menu at mouse cursor position
+   */
+  /**
+   * Show menu at mouse cursor position
+   */
+  showAtMouseEvent(event) {
+    this.lastShowPosition = { x: event.clientX, y: event.clientY };
+    this.menu.showAtMouseEvent(event);
+  }
+  /**
+   * Show menu at a specific position
+   */
+  /**
+   * Show menu at a specific position
+   */
+  showAtPosition(x, y) {
+    this.lastShowPosition = { x, y };
+    this.menu.showAtPosition({ x, y });
+  }
+  /**
+   * Show menu relative to an element
+   */
+  showAtElement(element, options) {
+    const rect = element.getBoundingClientRect();
+    const placement = (options == null ? void 0 : options.placement) || "bottom-start";
+    const offset = (options == null ? void 0 : options.offset) || { x: 0, y: 0 };
+    let x = rect.left + offset.x;
+    let y = rect.bottom + offset.y;
+    switch (placement) {
+      case "bottom-start":
+        x = rect.left + offset.x;
+        y = rect.bottom + offset.y;
+        break;
+      case "bottom-end":
+        x = rect.right + offset.x;
+        y = rect.bottom + offset.y;
+        break;
+      case "top-start":
+        x = rect.left + offset.x;
+        y = rect.top + offset.y;
+        break;
+      case "top-end":
+        x = rect.right + offset.x;
+        y = rect.top + offset.y;
+        break;
+      case "right-start":
+        x = rect.right + offset.x;
+        y = rect.top + offset.y;
+        break;
+      case "right-end":
+        x = rect.right + offset.x;
+        y = rect.bottom + offset.y;
+        break;
+    }
+    this.menu.showAtPosition({ x, y });
+  }
+  /**
+   * Hide the menu
+   */
+  hide() {
+    this.menu.hide();
+  }
+  /**
+   * Get the underlying Obsidian Menu instance (for advanced usage)
+   */
+  getObsidianMenu() {
+    return this.menu;
+  }
+  /**
+   * Get the current menu position (helper for submenu positioning)
+   */
+  getMenuPosition() {
+    return this.lastShowPosition || null;
+  }
+  /**
+   * Static helper to create a menu from a configuration object
+   */
+  static fromConfig(items, options) {
+    const menu = new _WriterMenu(options);
+    const buildItems = (menuItems, targetMenu) => {
+      for (const item of menuItems) {
+        if (item.separator) {
+          targetMenu.addSeparator();
+        } else if (item.submenu) {
+          targetMenu.addSubmenu(item.title, (submenu) => {
+            buildItems(item.submenu, submenu);
+          });
+        } else if (item.disabled) {
+          targetMenu.addDisabledItem(item.title);
+        } else if (item.icon) {
+          targetMenu.addItemWithIcon(item.title, item.icon, item.callback);
+        } else {
+          targetMenu.addItem(item.title, item.callback);
+        }
+      }
+    };
+    buildItems(items, menu);
+    return menu;
+  }
+};
+var WriterMenuFactory = class {
+  /**
+   * Create a model selection menu with Provider → Family → Model hierarchy
+   */
+  /**
+   * Create a model selection menu with Provider → Family → Model hierarchy
+   */
+  static createModelMenu(providers, currentSelection, onSelect) {
+    const menu = new WriterMenu({
+      style: "refined",
+      spacing: "comfortable",
+      className: "writerr-model-menu"
+    });
+    if (currentSelection) {
+      menu.setCurrentSelection(currentSelection);
+    }
+    for (const [providerName, families] of Object.entries(providers)) {
+      menu.addSubmenu(providerName, (providerSubmenu) => {
+        for (const [familyName, models] of Object.entries(families)) {
+          providerSubmenu.addSubmenu(`${familyName}`, (modelSubmenu) => {
+            models.forEach((model) => {
+              const isSelected = currentSelection === `${providerName}:${model}`;
+              modelSubmenu.addCheckedItem(model, isSelected, () => {
+                onSelect == null ? void 0 : onSelect(providerName, model);
+              });
+            });
+          });
+        }
+      });
+    }
+    return menu;
+  }
+  /**
+   * Create a simple prompt selection menu
+   */
+  /**
+   * Create a simple prompt selection menu
+   */
+  static createPromptMenu(prompts, currentSelection, onSelect) {
+    const menu = new WriterMenu({
+      style: "refined",
+      spacing: "comfortable",
+      className: "writerr-prompt-menu"
+    });
+    if (currentSelection) {
+      menu.setCurrentSelection(currentSelection);
+    }
+    prompts.forEach((prompt) => {
+      const isSelected = currentSelection === prompt.path;
+      menu.addCheckedItem(prompt.name, isSelected, () => {
+        onSelect == null ? void 0 : onSelect(prompt.path);
+      });
+    });
+    return menu;
+  }
+};
+
 // plugins/writerr-chat/src/components/ChatToolbar.ts
 var ChatToolbar = class extends BaseComponent {
   constructor(options) {
@@ -1746,8 +2037,8 @@ var ChatToolbar = class extends BaseComponent {
     `;
     this.statusIndicator = modelContainer.createEl("div", { cls: "status-indicator" });
     this.updateStatusIndicator();
-    this.modelSelect = modelContainer.createEl("select");
-    this.modelSelect.style.cssText = `
+    const modelButton = modelContainer.createEl("button");
+    modelButton.style.cssText = `
       border: none !important;
       box-shadow: none !important;
       background: transparent !important;
@@ -1757,16 +2048,15 @@ var ChatToolbar = class extends BaseComponent {
       color: var(--text-faint);
       cursor: pointer;
       outline: none;
-      appearance: none;
-      -webkit-appearance: none;
-      -moz-appearance: none;
       min-width: 0;
       max-width: 100px;
       width: 100px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      text-align: left;
     `;
+    modelButton.textContent = "Select Model";
     const caret = modelContainer.createEl("div");
     caret.innerHTML = Icons.chevronDown({ width: 10, height: 10 });
     caret.style.cssText = `
@@ -1778,15 +2068,80 @@ var ChatToolbar = class extends BaseComponent {
       align-items: center;
       flex-shrink: 0;
     `;
-    this.populateModelOptions();
-    if (this.plugin.settings.selectedModel) {
-      this.modelSelect.value = this.plugin.settings.selectedModel;
-    }
-    this.modelSelect.addEventListener("change", async () => {
-      this.plugin.settings.selectedModel = this.modelSelect.value;
-      await this.plugin.saveSettings();
-      this.events.onModelChange(this.modelSelect.value);
+    this.modelButton = modelButton;
+    modelButton.addEventListener("click", (event) => {
+      this.showModelMenu(event);
     });
+    if (this.plugin.settings.selectedModel) {
+      this.updateModelButtonText(this.plugin.settings.selectedModel);
+    }
+  }
+  showModelMenu(event) {
+    var _a;
+    try {
+      const app = window.app;
+      const plugins = (_a = app == null ? void 0 : app.plugins) == null ? void 0 : _a.plugins;
+      const aiProvidersPlugin = plugins == null ? void 0 : plugins["ai-providers"];
+      if (!aiProvidersPlugin) {
+        console.log("WriterMenu: No AI providers available");
+        return;
+      }
+      const aiProviders = aiProvidersPlugin.aiProviders;
+      if (!(aiProviders == null ? void 0 : aiProviders.providers)) {
+        console.log("WriterMenu: No providers array found");
+        return;
+      }
+      const providerMap = {};
+      const idToDisplayName = {};
+      for (const provider of aiProviders.providers) {
+        const providerId = provider.id || provider.name || provider.type || "unknown";
+        const displayName = this.getProviderDisplayName(providerId, provider);
+        idToDisplayName[providerId] = displayName;
+        const models = provider.models || provider.availableModels || provider.supportedModels || [];
+        if (models.length > 0) {
+          const families = this.organizeModelsByFamily(models);
+          if (Object.keys(families).length > 0) {
+            providerMap[displayName] = families;
+            console.log(`WriterMenu: Added provider "${displayName}" with ${models.length} models`);
+          }
+        }
+      }
+      if (Object.keys(providerMap).length === 0) {
+        console.log("WriterMenu: No providers with models available");
+        return;
+      }
+      const menu = WriterMenuFactory.createModelMenu(
+        providerMap,
+        this.plugin.settings.selectedModel,
+        (providerDisplayName, model) => {
+          const providerId = Object.keys(idToDisplayName).find(
+            (id) => idToDisplayName[id] === providerDisplayName
+          ) || providerDisplayName;
+          const selection = `${providerId}:${model}`;
+          console.log(`WriterMenu: Selected ${providerDisplayName} - ${model} (${selection})`);
+          this.plugin.settings.selectedModel = selection;
+          this.plugin.saveSettings();
+          this.updateModelButtonText(selection);
+          this.events.onModelChange(selection);
+        }
+      );
+      menu.showAtMouseEvent(event);
+    } catch (error) {
+      console.error("WriterMenu: Error showing model menu:", error);
+    }
+  }
+  updateModelButtonText(selection) {
+    if (!this.modelButton)
+      return;
+    if (selection && selection.includes(":")) {
+      const [, model] = selection.split(":", 2);
+      this.modelButton.textContent = model;
+    } else {
+      this.modelButton.textContent = "Select Model";
+    }
+  }
+  getAvailableProvidersAndModels() {
+    return {};
   }
   createPromptSelect(parent) {
     const promptContainer = parent.createDiv();
@@ -1830,10 +2185,11 @@ var ChatToolbar = class extends BaseComponent {
       align-items: center;
       flex-shrink: 0;
     `;
-    this.populatePromptOptions();
-    if (this.plugin.settings.selectedPrompt) {
-      this.promptSelect.value = this.plugin.settings.selectedPrompt;
-    }
+    this.populatePromptOptions().then(() => {
+      if (this.plugin.settings.selectedPrompt) {
+        this.promptSelect.value = this.plugin.settings.selectedPrompt;
+      }
+    });
     this.promptSelect.addEventListener("change", async () => {
       this.plugin.settings.selectedPrompt = this.promptSelect.value;
       await this.plugin.saveSettings();
@@ -1844,140 +2200,28 @@ var ChatToolbar = class extends BaseComponent {
     this.tokenCounter = parent.createEl("span", { cls: "writerr-token-count" });
     this.updateTokenCounter(0, 9e4);
   }
-  // Context button removed - belongs in context area header, not toolbar
-  populateModelOptions() {
-    var _a;
-    this.modelSelect.innerHTML = "";
-    const app = window.app;
-    const plugins = (_a = app == null ? void 0 : app.plugins) == null ? void 0 : _a.plugins;
-    const aiProvidersPlugin = plugins == null ? void 0 : plugins["ai-providers"];
-    if (!aiProvidersPlugin) {
-      console.log("AI Providers plugin not found");
-      this.modelSelect.createEl("option", {
-        value: "",
-        text: "AI Providers plugin not found"
-      });
-      return;
-    }
-    const aiProviders = aiProvidersPlugin.aiProviders;
-    if (!aiProviders) {
-      console.log("AI Providers SDK not available on plugin object");
-      this.modelSelect.createEl("option", {
-        value: "",
-        text: "AI Providers SDK not available"
-      });
-      return;
-    }
-    console.log("\u2705 Found AI Providers SDK:", aiProviders);
-    console.log("\u{1F4CB} AI Providers SDK methods:", Object.keys(aiProviders));
-    if (typeof aiProviders.execute === "function") {
-      console.log("\u2705 AI Providers SDK has execute method");
-    } else {
-      console.log("\u274C AI Providers SDK missing execute method");
-    }
-    try {
-      const availableProviders = this.getAvailableProvidersAndModels(aiProviders);
-      if (Object.keys(availableProviders).length === 0) {
-        console.log("No providers configured in AI Providers plugin");
-        this.modelSelect.createEl("option", {
-          value: "",
-          text: "No models configured"
-        });
-        return;
+  getProviderDisplayName(providerId, provider) {
+    if (provider) {
+      if (provider.displayName && typeof provider.displayName === "string") {
+        return provider.displayName;
       }
-      for (const [provider, families] of Object.entries(availableProviders)) {
-        for (const [family, models] of Object.entries(families)) {
-          const groupLabel = `${provider} \u2192 ${family}`;
-          const familyGroup = this.modelSelect.createEl("optgroup", { label: groupLabel });
-          models.forEach((model) => {
-            familyGroup.createEl("option", {
-              value: `${provider}:${model}`,
-              // Store provider:model for routing
-              text: model
-              // Display only model name (clean)
-            });
-          });
+      if (provider.name && typeof provider.name === "string" && !provider.name.startsWith("id-")) {
+        return provider.name;
+      }
+      if (provider.type && typeof provider.type === "string") {
+        const displayNames2 = {
+          "openai": "OpenAI",
+          "anthropic": "Anthropic",
+          "google": "Google",
+          "ollama": "Local/Ollama",
+          "azure": "Azure OpenAI"
+        };
+        const typeDisplayName = displayNames2[provider.type.toLowerCase()];
+        if (typeDisplayName) {
+          return typeDisplayName;
         }
       }
-      console.log("Successfully populated model dropdown with provider \u2192 family grouping");
-    } catch (error) {
-      console.error("Error populating model options:", error);
-      this.modelSelect.createEl("option", {
-        value: "",
-        text: "Error loading models"
-      });
     }
-  }
-  getAvailableProvidersAndModels(aiProviders) {
-    var _a;
-    try {
-      console.log("\u{1F50D} AI Providers plugin object:", aiProviders);
-      console.log("\u{1F50D} Available methods/properties:", Object.keys(aiProviders));
-      console.log("\u{1F50D} Plugin constructor:", (_a = aiProviders.constructor) == null ? void 0 : _a.name);
-      if (aiProviders.settings) {
-        console.log("\u{1F4CB} Plugin settings:", aiProviders.settings);
-      }
-      let providers = [];
-      const possibleMethods = [
-        "getProviders",
-        "getAvailableProviders",
-        "listProviders",
-        "providers",
-        "getConfiguredProviders"
-      ];
-      for (const method of possibleMethods) {
-        if (typeof aiProviders[method] === "function") {
-          console.log(`\u{1F4DE} Trying method: ${method}()`);
-          try {
-            providers = aiProviders[method]();
-            console.log(`\u2705 ${method}() returned:`, providers);
-            break;
-          } catch (err) {
-            console.log(`\u274C ${method}() failed:`, err);
-          }
-        } else if (aiProviders[method] !== void 0) {
-          console.log(`\u{1F4CB} Found property: ${method} =`, aiProviders[method]);
-          providers = Array.isArray(aiProviders[method]) ? aiProviders[method] : [aiProviders[method]];
-          break;
-        }
-      }
-      if (providers.length === 0 && aiProviders.settings) {
-        const settings = aiProviders.settings;
-        if (settings.providers && Array.isArray(settings.providers)) {
-          providers = settings.providers;
-          console.log("\u{1F4CB} Using providers from settings:", providers);
-        } else if (settings.provider) {
-          providers = [settings.provider];
-          console.log("\u{1F4CB} Using single provider from settings:", providers);
-        }
-      }
-      if (providers.length === 0) {
-        console.log("\u274C No providers found in AI Providers plugin");
-        return {};
-      }
-      const organized = {};
-      for (const provider of providers) {
-        console.log("\u{1F527} Processing provider:", provider);
-        const providerId = provider.id || provider.name || provider.type || "unknown";
-        const providerName = this.getProviderDisplayName(providerId);
-        const models = provider.models || provider.availableModels || provider.supportedModels || [];
-        console.log(`\u{1F4CB} Models for ${providerId}:`, models);
-        if (models.length > 0) {
-          const families = this.organizeModelsByFamily(models);
-          if (Object.keys(families).length > 0) {
-            organized[providerName] = families;
-            console.log(`\u2705 Added provider ${providerName} with families:`, families);
-          }
-        }
-      }
-      console.log("\u{1F3AF} Final organized providers:", organized);
-      return organized;
-    } catch (error) {
-      console.error("\u274C Error getting providers from AI Providers plugin:", error);
-      return {};
-    }
-  }
-  getProviderDisplayName(providerId) {
     const displayNames = {
       "openai": "OpenAI",
       "anthropic": "Anthropic",
@@ -1985,7 +2229,28 @@ var ChatToolbar = class extends BaseComponent {
       "ollama": "Local/Ollama",
       "azure": "Azure OpenAI"
     };
-    return displayNames[providerId.toLowerCase()] || providerId;
+    const staticResult = displayNames[providerId.toLowerCase()];
+    if (staticResult) {
+      return staticResult;
+    }
+    if (providerId.startsWith("id-") && provider) {
+      const providerStr = JSON.stringify(provider).toLowerCase();
+      if (providerStr.includes("openai") || providerStr.includes("gpt")) {
+        console.log("WriterMenu: Inferred OpenAI from provider content for ID:", providerId);
+        return "OpenAI";
+      } else if (providerStr.includes("anthropic") || providerStr.includes("claude")) {
+        console.log("WriterMenu: Inferred Anthropic from provider content for ID:", providerId);
+        return "Anthropic";
+      } else if (providerStr.includes("google") || providerStr.includes("gemini")) {
+        console.log("WriterMenu: Inferred Google from provider content for ID:", providerId);
+        return "Google";
+      } else if (providerStr.includes("ollama")) {
+        console.log("WriterMenu: Inferred Local/Ollama from provider content for ID:", providerId);
+        return "Local/Ollama";
+      }
+      console.log("WriterMenu: Could not infer provider type for ID:", providerId);
+    }
+    return providerId;
   }
   organizeModelsByFamily(models) {
     const families = {};
@@ -2032,39 +2297,49 @@ var ChatToolbar = class extends BaseComponent {
     }
     return families;
   }
-  refreshModelOptions() {
-    this.populateModelOptions();
-  }
-  setSelectedModel(providerAndModel) {
-    this.modelSelect.value = providerAndModel;
-  }
-  getSelectedModel() {
-    const value = this.modelSelect.value;
-    if (!value || !value.includes(":")) {
-      return null;
-    }
-    const [provider, model] = value.split(":", 2);
-    return { provider, model };
-  }
-  refreshAvailableModels() {
-    this.refreshModelOptions();
-  }
-  notifyModelProviderReady() {
-    var _a, _b;
-    (_b = (_a = this.events).onModelProviderReady) == null ? void 0 : _b.call(_a);
-  }
-  populatePromptOptions() {
+  async populatePromptOptions() {
     this.promptSelect.createEl("option", { value: "", text: "Prompts" });
-    const defaultPrompts = [
-      "Creative Writing",
-      "Technical Writing",
-      "Academic Style",
-      "Casual Tone",
-      "Professional"
-    ];
-    defaultPrompts.forEach((prompt) => {
-      this.promptSelect.createEl("option", { value: prompt.toLowerCase().replace(" ", "-"), text: prompt });
-    });
+    try {
+      const pluginDir = this.plugin.manifest.dir;
+      const promptsPath = `${pluginDir}/prompts`;
+      console.log(`\u{1F50D} Looking for prompts in: ${promptsPath}`);
+      const adapter = this.plugin.app.vault.adapter;
+      console.log(`\u{1F4C2} Vault adapter type:`, adapter.constructor.name);
+      const promptsDirExists = await adapter.exists(promptsPath);
+      console.log(`\u{1F4C2} Prompts directory exists: ${promptsDirExists}`);
+      if (promptsDirExists) {
+        const promptFiles = await adapter.list(promptsPath);
+        console.log(`\u{1F4CB} Files in prompts directory:`, promptFiles);
+        if (promptFiles.files && promptFiles.files.length > 0) {
+          const mdFiles = promptFiles.files.filter((file) => file.endsWith(".md"));
+          console.log(`\u{1F4CB} MD files found: ${mdFiles.length}`, mdFiles);
+          if (mdFiles.length > 0) {
+            console.log(`\u2705 Adding ${mdFiles.length} prompts to dropdown`);
+            mdFiles.forEach((filePath) => {
+              const fileName = filePath.split("/").pop() || filePath;
+              const baseName = fileName.replace(".md", "");
+              console.log(`   Adding: ${baseName} (${filePath})`);
+              this.promptSelect.createEl("option", {
+                value: filePath,
+                text: baseName
+              });
+            });
+            return;
+          }
+        }
+      }
+      console.error(`\u274C PROMPTS NOT FOUND - Plugin is broken! No prompts directory found at: ${promptsPath}`);
+      this.promptSelect.createEl("option", {
+        value: "ERROR",
+        text: "\u26A0\uFE0F PROMPTS NOT FOUND"
+      });
+    } catch (error) {
+      console.error("\u274C CRITICAL ERROR loading prompts:", error);
+      this.promptSelect.createEl("option", {
+        value: "ERROR",
+        text: "\u26A0\uFE0F LOAD ERROR"
+      });
+    }
   }
   updateStatusIndicator() {
     var _a, _b;
@@ -2103,6 +2378,24 @@ var ChatToolbar = class extends BaseComponent {
     }
     this.tokenCounter.textContent = `${used.toLocaleString()} / ${total.toLocaleString()}`;
     this.tokenCounter.style.color = color;
+  }
+  refreshModelOptions() {
+    console.log("Model options refresh requested - using WriterMenu system");
+  }
+  setSelectedModel(providerAndModel) {
+    this.plugin.settings.selectedModel = providerAndModel;
+    this.updateModelButtonText(providerAndModel);
+  }
+  getSelectedModel() {
+    const value = this.plugin.settings.selectedModel;
+    if (!value || !value.includes(":")) {
+      return null;
+    }
+    const [provider, model] = value.split(":", 2);
+    return { provider, model };
+  }
+  refreshAvailableModels() {
+    console.log("Available models refresh requested - using WriterMenu system");
   }
 };
 
@@ -2734,7 +3027,7 @@ This will permanently delete ${messageCount} message${messageCount !== 1 ? "s" :
 
 // plugins/writerr-chat/src/chat-view.ts
 var VIEW_TYPE_CHAT = "writerr-chat-view";
-var ChatView = class extends import_obsidian3.ItemView {
+var ChatView = class extends import_obsidian4.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.plugin = plugin;
@@ -2761,7 +3054,7 @@ var ChatView = class extends import_obsidian3.ItemView {
       border-radius: 8px;
       overflow: hidden;
     `;
-    this.createComponents(container);
+    await this.createComponents(container);
     this.setupEventHandlers();
     this.applyTheme();
     if (!this.plugin.currentSession) {
@@ -2770,7 +3063,7 @@ var ChatView = class extends import_obsidian3.ItemView {
     this.refresh();
     this.scheduleDelayedInitialization();
   }
-  createComponents(container) {
+  async createComponents(container) {
     const headerContainer = container.createEl("div", { cls: "chat-header-container" });
     this.chatHeader = new ChatHeader({
       plugin: this.plugin,
@@ -2826,7 +3119,7 @@ var ChatView = class extends import_obsidian3.ItemView {
         onPromptChange: (prompt) => this.handlePromptChange(prompt)
       }
     });
-    this.chatToolbar.render();
+    await this.chatToolbar.render();
   }
   setupEventHandlers() {
     this.messageList.container.addEventListener("starter-prompt-selected", (e) => {
@@ -2854,7 +3147,7 @@ var ChatView = class extends import_obsidian3.ItemView {
       this.refresh();
     } catch (error) {
       console.error("Error sending message:", error);
-      new import_obsidian3.Notice(`Error: ${error.message}`);
+      new import_obsidian4.Notice(`Error: ${error.message}`);
     } finally {
       this.chatInput.setProcessingState(false);
       this.chatHeader.updateStatusIndicator();
@@ -2862,10 +3155,10 @@ var ChatView = class extends import_obsidian3.ItemView {
   }
   copyMessage(message) {
     navigator.clipboard.writeText(message.content).then(() => {
-      new import_obsidian3.Notice("Message copied to clipboard");
+      new import_obsidian4.Notice("Message copied to clipboard");
     }).catch((err) => {
       console.error("Failed to copy message:", err);
-      new import_obsidian3.Notice("Failed to copy message");
+      new import_obsidian4.Notice("Failed to copy message");
     });
   }
   async retryMessage(message) {
@@ -2901,7 +3194,7 @@ var ChatView = class extends import_obsidian3.ItemView {
           this.refresh();
         } catch (error) {
           console.error("Error retrying message:", error);
-          new import_obsidian3.Notice(`Error: ${error.message}`);
+          new import_obsidian4.Notice(`Error: ${error.message}`);
           const { generateId: generateId2 } = await Promise.resolve().then(() => (init_utils(), utils_exports));
           const errorMessage = {
             id: generateId2(),
@@ -2933,7 +3226,7 @@ var ChatView = class extends import_obsidian3.ItemView {
       `Length: ${info.length} characters`,
       `Estimated tokens: ${info.tokens}`
     ].join("\n");
-    new import_obsidian3.Notice(infoText, 5e3);
+    new import_obsidian4.Notice(infoText, 5e3);
   }
   handleModeChange(mode) {
     this.plugin.settings.defaultMode = mode;
@@ -2953,7 +3246,7 @@ var ChatView = class extends import_obsidian3.ItemView {
       }
     } catch (error) {
       console.error("Error opening document:", error);
-      new import_obsidian3.Notice(`Failed to open document: ${doc.name}`);
+      new import_obsidian4.Notice(`Failed to open document: ${doc.name}`);
     }
   }
   showSessionManager() {
@@ -2971,7 +3264,7 @@ var ChatView = class extends import_obsidian3.ItemView {
     this.sessionManager.show();
   }
   showSettings() {
-    new import_obsidian3.Notice("Settings panel coming soon!");
+    new import_obsidian4.Notice("Settings panel coming soon!");
   }
   selectSession(sessionId) {
     this.plugin.setCurrentSession(sessionId);
@@ -3032,25 +3325,25 @@ var ChatView = class extends import_obsidian3.ItemView {
     const messages = ((_a = this.plugin.currentSession) == null ? void 0 : _a.messages) || [];
     const chatText = messages.map((msg) => `${msg.role === "user" ? "You" : "Assistant"}: ${msg.content}`).join("\n\n");
     navigator.clipboard.writeText(chatText).then(() => {
-      new import_obsidian3.Notice("Chat copied to clipboard");
+      new import_obsidian4.Notice("Chat copied to clipboard");
     }).catch(() => {
-      new import_obsidian3.Notice("Failed to copy chat");
+      new import_obsidian4.Notice("Failed to copy chat");
     });
   }
   clearChat() {
     if (this.plugin.currentSession) {
       this.plugin.currentSession.messages = [];
       this.refresh();
-      new import_obsidian3.Notice("Chat cleared");
+      new import_obsidian4.Notice("Chat cleared");
     }
   }
   handleModelChange(model) {
     console.log("Model changed to:", model);
-    new import_obsidian3.Notice(`Model changed to ${model}`);
+    new import_obsidian4.Notice(`Model changed to ${model}`);
   }
   handlePromptChange(prompt) {
     console.log("Prompt template selected:", prompt);
-    new import_obsidian3.Notice(`Prompt template: ${prompt}`);
+    new import_obsidian4.Notice(`Prompt template: ${prompt}`);
   }
   async onClose() {
     var _a, _b, _c, _d, _e;
@@ -3089,7 +3382,7 @@ var DEFAULT_SETTINGS = {
 var BUILD_TIMESTAMP = Date.now();
 var BUILD_VERSION = "v2.0.1-fix-ai-providers";
 console.log(`\u{1F527} Writerr Chat Build: ${BUILD_VERSION} (${new Date(BUILD_TIMESTAMP).toISOString()})`);
-var WriterrlChatPlugin = class extends import_obsidian4.Plugin {
+var WriterrlChatPlugin = class extends import_obsidian5.Plugin {
   constructor() {
     super(...arguments);
     this.currentSession = null;
@@ -3381,10 +3674,11 @@ select:hover {
   stroke-width: 2 !important;
 }
 
-/* Chat Control Buttons - Header Icons - REMOVE SETTINGS */
+/* Chat Control Buttons - Header Icons - KEEP DARK */
 .chat-control-button {
   padding: 8px !important;
   border-radius: var(--radius-s) !important;
+  color: var(--text-normal) !important; /* Override subtle gray - keep header icons dark */
 }
 
 .chat-control-button:hover {
@@ -3396,6 +3690,8 @@ select:hover {
 .chat-control-button:last-child {
   display: none !important;
 }
+
+/* Clean menu styling - no debug colors */
 `;
     const timestamp = Date.now();
     const existing = document.getElementById("writerr-chat-styles");
@@ -3407,7 +3703,7 @@ select:hover {
     styleEl.setAttribute("data-timestamp", timestamp.toString());
     document.head.appendChild(styleEl);
     styleEl.textContent = styles;
-    console.log(`Writerr Chat: Force reloaded CSS styles at ${timestamp}`);
+    console.log(`Writerr Chat: DEBUG CSS applied at ${timestamp} - looking for menu selectors`);
   }
   onunload() {
     this.cleanupGlobalAPI();
@@ -3453,7 +3749,7 @@ select:hover {
         if (selection) {
           this.chatWithSelection(selection);
         } else {
-          new import_obsidian4.Notice("No text selected");
+          new import_obsidian5.Notice("No text selected");
         }
       }
     });
@@ -3573,7 +3869,7 @@ What would you like to know about this text?`;
         });
       }
     } catch (error) {
-      new import_obsidian4.Notice(`Error sending message: ${error.message}`);
+      new import_obsidian5.Notice(`Error sending message: ${error.message}`);
       console.error("Chat error:", error);
       const errorMessage = {
         id: generateId(),
@@ -3662,86 +3958,78 @@ What would you like to know about this text?`;
     }
   }
   async processWithAIProvider(parsedMessage, context) {
-    var _a, _b;
+    var _a, _b, _c, _d, _e;
     console.log(`\u{1F3AF} [${BUILD_VERSION}] processWithAIProvider ENTRY - Using provider OBJECT method`);
     const aiProvidersPlugin = (_b = (_a = this.app.plugins) == null ? void 0 : _a.plugins) == null ? void 0 : _b["ai-providers"];
     if (!aiProvidersPlugin) {
-      throw new Error("AI Providers plugin not found. Please install and enable the AI Providers plugin.");
+      console.log("\u274C AI Providers plugin not found");
+      throw new Error("AI Providers plugin not available. Please ensure it is installed and enabled.");
     }
     const aiProviders = aiProvidersPlugin.aiProviders;
     if (!aiProviders) {
-      throw new Error("AI Providers SDK not available.");
+      throw new Error("AI Providers SDK not available in plugin");
     }
-    const chatLeaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_CHAT)[0];
-    let selectedProvider = this.settings.defaultProvider;
-    let selectedModel = "gpt-4";
     let providerObject = null;
-    if (chatLeaf && chatLeaf.view instanceof ChatView) {
-      const toolbar = chatLeaf.view.chatToolbar;
-      if (toolbar) {
-        const modelSelection = toolbar.getSelectedModel();
-        if (modelSelection) {
-          selectedProvider = modelSelection.provider;
-          selectedModel = modelSelection.model;
-        }
+    if (this.settings.selectedModel && this.settings.selectedModel.includes(":")) {
+      const [providerId] = this.settings.selectedModel.split(":");
+      console.log(`\u{1F50D} Looking for provider: ${providerId}`);
+      if (aiProviders.providers && Array.isArray(aiProviders.providers)) {
+        providerObject = aiProviders.providers.find(
+          (p) => p.id === providerId || p.name === providerId
+        );
       }
+      console.log(providerObject ? "\u2705 Found selected provider" : "\u274C Selected provider not found");
     }
-    if (aiProviders.providers && Array.isArray(aiProviders.providers)) {
-      providerObject = aiProviders.providers.find(
-        (p) => p.id === selectedProvider || p.name === selectedProvider || p.type === selectedProvider
-      );
-      if (providerObject) {
-        console.log(`\u{1F3AF} [${BUILD_VERSION}] Found provider OBJECT:`, providerObject);
-      } else {
-        console.warn(`\u{1F3AF} [${BUILD_VERSION}] Provider object not found for: ${selectedProvider}`);
-        providerObject = aiProviders.providers[0];
-        console.log(`\u{1F3AF} [${BUILD_VERSION}] Using fallback provider OBJECT:`, providerObject);
-      }
+    if (!providerObject && aiProviders.providers && Array.isArray(aiProviders.providers) && aiProviders.providers.length > 0) {
+      providerObject = aiProviders.providers[0];
+      console.log("\u{1F504} Using first available provider:", (providerObject == null ? void 0 : providerObject.name) || (providerObject == null ? void 0 : providerObject.id));
     }
     if (!providerObject) {
-      throw new Error("No providers available in AI Providers plugin.");
+      throw new Error("No AI providers configured");
     }
-    let prompt = parsedMessage.originalContent;
+    const messages = this.currentSession.messages.map((msg) => ({
+      role: msg.role,
+      content: msg.content
+    }));
     if (context) {
-      prompt = `Context from document:
-${context}
+      messages.unshift({
+        role: "system",
+        content: `Context from current document:
 
-User request: ${prompt}`;
+${context}`
+      });
     }
     try {
-      console.log(`\u{1F3AF} [${BUILD_VERSION}] EXECUTE with provider OBJECT (not string):`, {
-        provider: providerObject,
-        model: selectedModel,
-        buildVersion: BUILD_VERSION
-      });
       const response = await aiProviders.execute({
+        messages,
+        model: ((_c = this.settings.selectedModel) == null ? void 0 : _c.split(":")[1]) || providerObject.model,
         provider: providerObject,
-        // Pass the actual provider object
-        prompt,
-        model: selectedModel,
-        // Also pass the specific model
-        onProgress: (chunk, full) => {
-          console.log(`\u{1F3AF} [${BUILD_VERSION}] Streaming chunk:`, chunk.length, "chars");
+        temperature: this.settings.temperature || 0.7,
+        maxTokens: this.settings.maxTokens || 2e3,
+        metadata: {
+          source: "writerr-chat",
+          sessionId: this.currentSession.id,
+          intent: parsedMessage.intent,
+          mode: parsedMessage.mode
         }
       });
-      console.log(`\u{1F3AF} [${BUILD_VERSION}] AI response SUCCESS:`, (response == null ? void 0 : response.length) || 0, "characters");
       const assistantMessage = {
         id: generateId(),
         role: "assistant",
-        content: response,
+        content: response.content || response.message || "No response from AI provider",
         timestamp: Date.now(),
         metadata: {
-          provider: selectedProvider,
-          providerType: providerObject.type || "unknown",
-          model: selectedModel,
           aiProvidersUsed: true,
-          buildVersion: BUILD_VERSION
+          provider: providerObject.name || providerObject.id,
+          model: ((_d = this.settings.selectedModel) == null ? void 0 : _d.split(":")[1]) || providerObject.model,
+          tokensUsed: (_e = response.usage) == null ? void 0 : _e.totalTokens,
+          temperature: this.settings.temperature || 0.7
         }
       };
       this.currentSession.messages.push(assistantMessage);
     } catch (error) {
-      console.error(`\u{1F3AF} [${BUILD_VERSION}] AI Providers ERROR:`, error);
-      throw new Error(`AI processing failed: ${error.message}`);
+      console.error("AI Providers execution error:", error);
+      throw new Error(`AI Provider error: ${error.message}`);
     }
   }
   formatEditorialEngineResponse(result, parsedMessage) {
@@ -3897,7 +4185,7 @@ User request: ${prompt}`;
     }
   }
 };
-var QuickChatModal = class extends import_obsidian4.Modal {
+var QuickChatModal = class extends import_obsidian5.Modal {
   constructor(app, onSubmit) {
     super(app);
     this.onSubmit = onSubmit;
