@@ -215,9 +215,9 @@ export class ChatToolbar extends BaseComponent {
         return;
       }
 
-      // Build provider map with display names but keep IDs for selection
+      // Build provider map - keep ORIGINAL provider objects for reliable lookup
       const providerMap: Record<string, Record<string, string[]>> = {};
-      const idToDisplayName: Record<string, string> = {};
+      const providersByDisplayName: Record<string, any> = {}; // Store actual provider objects
       
       for (const provider of aiProviders.providers) {
         const providerId = provider.id || provider.name || provider.type || 'unknown';
@@ -225,8 +225,8 @@ export class ChatToolbar extends BaseComponent {
         // Pass the full provider object to getProviderDisplayName for better inference
         const displayName = this.getProviderDisplayName(providerId, provider);
         
-        // Store mapping
-        idToDisplayName[providerId] = displayName;
+        // Store actual provider object (not just ID mapping)
+        providersByDisplayName[displayName] = provider;
         
         const models = provider.models || provider.availableModels || provider.supportedModels || [];
         
@@ -249,13 +249,13 @@ export class ChatToolbar extends BaseComponent {
         providerMap,
         this.plugin.settings.selectedModel,
         (providerDisplayName: string, model: string) => {
-          // Find the provider ID that corresponds to this display name
-          const providerId = Object.keys(idToDisplayName).find(id => 
-            idToDisplayName[id] === providerDisplayName
-          ) || providerDisplayName;
+          // Get the actual provider object directly (no fragile reverse lookup!)
+          const provider = providersByDisplayName[providerDisplayName];
+          const providerId = provider.id || provider.name || provider.type || 'unknown';
           
           const selection = `${providerId}:${model}`;
           console.log(`WriterMenu: Selected ${providerDisplayName} - ${model} (${selection})`);
+          console.log(`WriterMenu: Using provider ID: ${providerId} from provider:`, provider);
 
           this.plugin.settings.selectedModel = selection;
           this.plugin.saveSettings();

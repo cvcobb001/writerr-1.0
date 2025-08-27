@@ -737,11 +737,13 @@ select:hover {
 
     // Get the current provider selection from settings or use the first available
     let providerObject: any = null;
+    let selectedModel = 'gpt-4'; // fallback
     
     // First try: Use selected provider from settings
     if (this.settings.selectedModel && this.settings.selectedModel.includes(':')) {
-      const [providerId] = this.settings.selectedModel.split(':');
-      console.log(`🔍 Looking for provider: ${providerId}`);
+      const [providerId, modelName] = this.settings.selectedModel.split(':');
+      selectedModel = modelName;
+      console.log(`🔍 Looking for provider: ${providerId}, model: ${modelName}`);
       
       if (aiProviders.providers && Array.isArray(aiProviders.providers)) {
         providerObject = aiProviders.providers.find((p: any) => 
@@ -762,72 +764,77 @@ select:hover {
       throw new Error('No AI providers configured');
     }
 
-    // Build conversation context
-    const messages = this.currentSession!.messages.map(msg => ({
-      role: msg.role,
-      content: msg.content
-    }));
-
+    // Convert messages array to single prompt string (working API format)
+    let prompt = '';
+    
     // Add context if provided
     if (context) {
-      messages.unshift({
-        role: 'system',
-        content: `Context from current document:\n\n${context}`
-      });
+      prompt += `Context from current document:\n${context}\n\n`;
     }
+    
+    // Add conversation history
+    const conversationMessages = this.currentSession!.messages;
+    if (conversationMessages.length > 0) {
+      prompt += 'Previous conversation:\n';
+      for (const msg of conversationMessages) {
+        prompt += `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}\n`;
+      }
+      prompt += '\n';
+    }
+    
+    // Add current user message
+    prompt += `User request: ${parsedMessage.originalContent}`;
 
     try {
-      // Debug: Log the execute parameters
-      const executeParams = {
-        messages,
-        model: this.settings.selectedModel?.split(':')[1] || providerObject.model,
-        provider: providerObject,
-        temperature: this.settings.temperature || 0.7,
-        maxTokens: this.settings.maxTokens || 2000,
-        metadata: {
-          source: 'writerr-chat',
-          sessionId: this.currentSession!.id,
-          intent: parsedMessage.intent,
-          mode: parsedMessage.mode
+      console.log(`🎯 [${BUILD_VERSION}] EXECUTE with provider OBJECT (working API format):`, {
+        provider: providerObject?.name || providerObject?.id,
+        model: selectedModel,
+        promptLength: prompt.length
+      });
+      
+      // Use AI Providers SDK with the WORKING API format from commit 26a97a2
+      const response = await aiProviders.execute({
+        provider: providerObject, // Pass the actual provider object
+        prompt: prompt,           // Single prompt string (not messages array)
+        model: selectedModel,     // Specific model name
+        onProgress: (chunk: string, full: string) => {
+          console.log(`🎯 [${BUILD_VERSION}] Streaming chunk:`, chunk.length, 'chars');
         }
-      };
-      
-      console.log('🔧 AI Provider execute params:', JSON.stringify(executeParams, null, 2));
-      console.log('🔧 Provider object:', JSON.stringify(providerObject, null, 2));
-      console.log('🔧 Available aiProviders methods:', Object.keys(aiProviders));
-      
-      // Use AI Providers SDK execute method
-      const response = await aiProviders.execute(executeParams);
-      console.log('🔧 AI Provider raw response:', JSON.stringify(response, null, 2));
+      });
+
+      console.log(`🎯 [${BUILD_VERSION}] AI response SUCCESS:`, response?.length || 0, 'characters');
 
       // Validate response
-      if (!response || (!response.content && !response.message)) {
-        throw new Error(`AI Provider returned empty response: ${JSON.stringify(response)}`);
+      if (!response || typeof response !== 'string' || response.trim().length === 0) {
+        throw new Error(`AI Provider returned empty or invalid response: ${JSON.stringify(response)}`);
       }
 
       // Create assistant response
       const assistantMessage: ChatMessage = {
         id: generateId(),
         role: 'assistant',
-        content: response.content || response.message,
+        content: response,
         timestamp: Date.now(),
         metadata: {
           aiProvidersUsed: true,
           provider: providerObject.name || providerObject.id,
-          model: this.settings.selectedModel?.split(':')[1] || providerObject.model,
-          tokensUsed: response.usage?.totalTokens,
-          temperature: this.settings.temperature || 0.7
+          providerType: providerObject.type || 'unknown',
+          model: selectedModel,
+          buildVersion: BUILD_VERSION
         }
       };
 
       this.currentSession!.messages.push(assistantMessage);
       
-      // Update token counter if available
-      this.updateTokenCounterFromResponse(response);
+      // Update token counter with estimated values (since working API doesn't return usage)
+      if (this.chatView?.chatToolbar) {
+        const estimatedTokens = Math.ceil(response.length / 4);
+        this.chatView.chatToolbar.updateTokenCounter(estimatedTokens, this.settings.maxTokens || 2000);
+      }
       
     } catch (error) {
-      console.error('AI Providers execution error:', error);
-      throw new Error(`AI Provider error: ${error.message}`);
+      console.error(`🎯 [${BUILD_VERSION}] AI Providers ERROR:`, error);
+      throw new Error(`AI processing failed: ${error.message}`);
     }
   }
 
