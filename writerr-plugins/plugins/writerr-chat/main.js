@@ -2224,8 +2224,7 @@ var ChatToolbar = class extends BaseComponent {
   }
   render() {
     this.createToolbarContainer();
-    this.createLeftSection();
-    this.createRightSection();
+    this.createToolbarElements();
   }
   createToolbarContainer() {
     this.container.style.cssText = `
@@ -2241,51 +2240,101 @@ var ChatToolbar = class extends BaseComponent {
       overflow: hidden;
     `;
   }
-  createLeftSection() {
-    const leftContainer = this.createElement("div", {
-      cls: "writerr-toolbar-left",
-      styles: {
-        display: "flex",
-        alignItems: "center",
-        gap: "6px",
-        flexShrink: "0"
-      }
-    });
+  createToolbarElements() {
+    this.container.style.cssText = `
+      all: initial;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 12px;
+      border-top: 1px solid var(--background-modifier-border);
+      background: var(--background-secondary);
+      font-size: 12px;
+      color: var(--text-muted);
+      min-height: 40px;
+      box-sizing: border-box;
+      font-family: var(--font-interface);
+    `;
     this.createSmartDocumentButton(
-      leftContainer,
+      this.container,
       "Add document to chat",
       createStyledIcon("filePlus2", "toolbar"),
       () => this.events.onAddDocument()
     );
     this.createActionButton(
-      leftContainer,
+      this.container,
       "Copy entire chat",
       createStyledIcon("copy", "toolbar"),
       () => this.events.onCopyChat()
     );
     this.createActionButton(
-      leftContainer,
+      this.container,
       "Clear chat",
       createStyledIcon("paintbrush", "toolbar"),
       () => this.events.onClearChat()
     );
+    const spacer = this.container.createEl("div");
+    spacer.style.cssText = "flex: 1; min-width: 20px;";
+    this.createPromptSelect(this.container);
+    this.createModelSelect(this.container);
+    this.createTokenCounter(this.container);
   }
-  createRightSection() {
-    const rightContainer = this.createElement("div", {
-      cls: "toolbar-right",
-      styles: {
-        display: "flex",
-        alignItems: "center",
-        gap: "6px",
-        flex: "1",
-        justifyContent: "flex-end",
-        minWidth: "0",
-        overflow: "hidden"
-      }
-    });
-    this.createPromptSelect(rightContainer);
-    this.createModelSelect(rightContainer);
-    this.createTokenCounter(rightContainer);
+  createTestToolbar() {
+    const testToolbar = this.container.parentElement.createEl("div");
+    testToolbar.style.cssText = `
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 12px;
+      border-top: 1px solid var(--background-modifier-border);
+      background: var(--background-secondary);
+      font-size: 12px;
+      color: var(--text-muted);
+      min-height: 40px;
+      margin-top: 4px;
+    `;
+    const label = testToolbar.createEl("span");
+    label.textContent = "TEST:";
+    label.style.cssText = "font-weight: bold; color: var(--text-accent);";
+    const freshPromptButton = testToolbar.createEl("button");
+    freshPromptButton.style.cssText = `
+      all: initial;
+      font-family: inherit;
+      border: 1px solid var(--background-modifier-border);
+      background: var(--background-primary);
+      padding: 4px 8px;
+      font-size: 12px;
+      color: var(--text-normal);
+      cursor: pointer;
+      width: 120px;
+      text-align: left;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      border-radius: 4px;
+    `;
+    freshPromptButton.textContent = "casual-conversational";
+    const freshModelButton = testToolbar.createEl("button");
+    freshModelButton.style.cssText = `
+      all: initial;
+      font-family: inherit;
+      border: 1px solid var(--background-modifier-border);
+      background: var(--background-primary);
+      padding: 4px 8px;
+      font-size: 12px;
+      color: var(--text-normal);
+      cursor: pointer;
+      width: 100px;
+      text-align: left;
+      border-radius: 4px;
+    `;
+    freshModelButton.textContent = "claude-3.5-sonnet";
+    const freshTokens = testToolbar.createEl("span");
+    freshTokens.style.cssText = `
+      font-size: 12px;
+      color: var(--text-muted);
+    `;
+    freshTokens.textContent = "267 / unavailable";
   }
   createActionButton(parent, tooltip, icon, onClick) {
     const button = parent.createEl("button", {
@@ -2335,47 +2384,40 @@ var ChatToolbar = class extends BaseComponent {
     this.addTooltip(button, tooltip);
   }
   createModelSelect(parent) {
-    const modelContainer = parent.createDiv();
-    modelContainer.style.cssText = `
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      position: relative;
-      flex-shrink: 1;
-      min-width: 80px;
-    `;
-    this.statusIndicator = modelContainer.createEl("div", { cls: "status-indicator" });
-    this.updateStatusIndicator();
-    const modelButton = modelContainer.createEl("button");
+    const modelButton = parent.createEl("button");
     modelButton.style.cssText = `
-      border: none !important;
-      box-shadow: none !important;
-      background: transparent !important;
-      padding: 4px 16px 4px 4px !important;
-      margin: 0 !important;
+      background: transparent;
+      border: none;
+      padding: 6px 24px 6px 8px;
       font-size: 12px;
-      color: var(--text-faint);
+      color: var(--text-muted);
       cursor: pointer;
-      outline: none;
-      min-width: 0;
-      max-width: 100px;
-      width: 100px;
+      border-radius: 4px;
+      max-width: 140px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      text-align: left;
+      position: relative;
+      font-family: inherit;
     `;
-    modelButton.textContent = "Select Model";
-    const caret = modelContainer.createEl("div");
+    modelButton.addEventListener("mouseenter", () => {
+      modelButton.style.background = "var(--background-modifier-hover)";
+      modelButton.style.color = "var(--text-normal)";
+    });
+    modelButton.addEventListener("mouseleave", () => {
+      modelButton.style.background = "transparent";
+      modelButton.style.color = "var(--text-muted)";
+    });
+    modelButton.textContent = "AI Models";
+    const caret = modelButton.createEl("span");
     caret.innerHTML = Icons.chevronDown({ width: 10, height: 10 });
     caret.style.cssText = `
+      position: absolute;
+      right: 6px;
+      top: 50%;
+      transform: translateY(-50%);
       pointer-events: none;
       color: var(--text-faint);
-      position: absolute;
-      right: 2px;
-      display: flex;
-      align-items: center;
-      flex-shrink: 0;
     `;
     this.modelButton = modelButton;
     modelButton.addEventListener("click", (event) => {
@@ -2431,6 +2473,7 @@ var ChatToolbar = class extends BaseComponent {
           this.plugin.settings.selectedModel = selection;
           this.plugin.saveSettings();
           this.updateModelButtonText(selection);
+          this.updateTokenCounterFromModel();
           this.events.onModelChange(selection);
         }
       );
@@ -2442,63 +2485,69 @@ var ChatToolbar = class extends BaseComponent {
   updateModelButtonText(selection) {
     if (!this.modelButton)
       return;
+    let displayName = "";
     if (selection && selection.includes(":")) {
       const [, model] = selection.split(":", 2);
-      this.modelButton.textContent = model;
+      displayName = model;
     } else {
-      this.modelButton.textContent = "Select Model";
+      displayName = "AI Models";
+    }
+    const maxLength = 15;
+    let finalText = displayName;
+    let showCaret = true;
+    if (displayName.length > maxLength) {
+      finalText = displayName.substring(0, maxLength - 3) + "...";
+      showCaret = false;
+    }
+    this.modelButton.textContent = finalText;
+    const caret = this.modelButton.querySelector("span");
+    if (caret) {
+      caret.style.display = showCaret ? "block" : "none";
     }
   }
   getAvailableProvidersAndModels() {
     return {};
   }
   createPromptSelect(parent) {
-    const promptContainer = parent.createDiv();
-    promptContainer.style.cssText = `
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      position: relative;
-      flex-shrink: 1;
-      min-width: 60px;
-    `;
-    this.createPromptMenuButton(promptContainer);
+    this.createPromptMenuButton(parent);
   }
   createPromptMenuButton(parent) {
     this.promptButton = parent.createEl("button");
     this.promptButton.style.cssText = `
-      border: none !important;
-      box-shadow: none !important;
-      background: transparent !important;
-      padding: 4px 16px 4px 4px !important;
-      margin: 0 !important;
+      background: transparent;
+      border: none;
+      padding: 6px 24px 6px 8px;
       font-size: 12px;
-      color: var(--text-faint);
+      color: var(--text-muted);
       cursor: pointer;
-      outline: none;
-      appearance: none;
-      -webkit-appearance: none;
-      -moz-appearance: none;
-      min-width: 0;
-      max-width: 80px;
-      width: 80px;
+      border-radius: 4px;
+      max-width: 140px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      text-align: left;
+      position: relative;
+      font-family: inherit;
     `;
+    this.promptButton.addEventListener("mouseenter", () => {
+      this.promptButton.style.background = "var(--background-modifier-hover)";
+      this.promptButton.style.color = "var(--text-normal)";
+    });
+    this.promptButton.addEventListener("mouseleave", () => {
+      this.promptButton.style.background = "transparent";
+      this.promptButton.style.color = "var(--text-muted)";
+    });
     this.promptButton.textContent = "Prompts";
-    const caret = parent.createEl("div");
+    const caret = this.promptButton.createEl("span");
     caret.innerHTML = Icons.chevronDown({ width: 10, height: 10 });
     caret.style.cssText = `
+      position: absolute;
+      right: 6px;
+      top: 50%;
+      transform: translateY(-50%);
       pointer-events: none;
       color: var(--text-faint);
-      position: absolute;
-      right: 2px;
-      display: flex;
-      align-items: center;
-      flex-shrink: 0;
     `;
+    this.promptButton.caret = caret;
     this.promptButton.addEventListener("click", (event) => {
       this.showPromptMenu(event);
     });
@@ -2531,13 +2580,59 @@ var ChatToolbar = class extends BaseComponent {
     var _a;
     if (!this.promptButton)
       return;
+    let displayName = "";
     if (selection) {
       const prompt = this.availablePrompts.find((p) => p.path === selection);
-      const displayName = prompt ? prompt.name : ((_a = selection.split("/").pop()) == null ? void 0 : _a.replace(".md", "")) || "Prompt";
-      this.promptButton.textContent = displayName;
+      displayName = prompt ? prompt.name : ((_a = selection.split("/").pop()) == null ? void 0 : _a.replace(".md", "")) || "Prompt";
     } else {
-      this.promptButton.textContent = "WriterMenu Prompts";
+      displayName = "WriterMenu Prompts";
     }
+    const maxLength = 15;
+    let finalText = displayName;
+    let showCaret = true;
+    if (displayName.length > maxLength) {
+      finalText = displayName.substring(0, maxLength - 3) + "...";
+      showCaret = false;
+    }
+    this.promptButton.textContent = finalText;
+    const caret = this.promptButton.caret;
+    if (caret) {
+      caret.style.display = showCaret ? "block" : "none";
+    }
+  }
+  updatePromptCaretVisibility() {
+    if (!this.promptButton)
+      return;
+    const caret = this.promptButton.caret;
+    if (!caret)
+      return;
+    requestAnimationFrame(() => {
+      this.promptButton.offsetWidth;
+      const buttonWidth = this.promptButton.clientWidth;
+      const buttonStyle = getComputedStyle(this.promptButton);
+      const paddingLeft = parseFloat(buttonStyle.paddingLeft);
+      const paddingRight = parseFloat(buttonStyle.paddingRight);
+      const availableTextWidth = buttonWidth - paddingLeft - paddingRight;
+      const tempSpan = document.createElement("span");
+      tempSpan.style.cssText = `
+        font-size: ${buttonStyle.fontSize};
+        font-family: ${buttonStyle.fontFamily};
+        font-weight: ${buttonStyle.fontWeight};
+        visibility: hidden;
+        position: absolute;
+        white-space: nowrap;
+      `;
+      tempSpan.textContent = this.promptButton.textContent;
+      document.body.appendChild(tempSpan);
+      const textWidth = tempSpan.offsetWidth;
+      document.body.removeChild(tempSpan);
+      const isTextTruncated = textWidth > availableTextWidth;
+      if (isTextTruncated) {
+        caret.style.display = "none";
+      } else {
+        caret.style.display = "flex";
+      }
+    });
   }
   async loadPromptsForMenu() {
     try {
@@ -2572,7 +2667,111 @@ var ChatToolbar = class extends BaseComponent {
   }
   createTokenCounter(parent) {
     this.tokenCounter = parent.createEl("span", { cls: "writerr-token-count" });
-    this.updateTokenCounter(0, 9e4);
+    this.updateTokenCounterFromModel();
+  }
+  updateTokenCounterFromModel() {
+    if (!this.tokenCounter)
+      return;
+    const contextTokens = this.calculateContextTokens();
+    const selectedModel = this.plugin.settings.selectedModel;
+    if (!selectedModel || !selectedModel.includes(":")) {
+      this.tokenCounter.textContent = `${contextTokens.toLocaleString()} / no model`;
+      this.tokenCounter.style.color = "var(--text-muted)";
+      return;
+    }
+    const [providerId, modelName] = selectedModel.split(":", 2);
+    const modelTokenLimit = this.getModelTokenLimit(providerId, modelName);
+    if (!modelTokenLimit) {
+      this.tokenCounter.textContent = `${contextTokens.toLocaleString()} / unavailable`;
+      this.tokenCounter.style.color = "var(--text-muted)";
+      return;
+    }
+    this.updateTokenCounter(contextTokens, modelTokenLimit);
+  }
+  getModelTokenLimit(providerId, modelName) {
+    var _a, _b, _c;
+    try {
+      const aiProvidersPlugin = (_b = (_a = this.plugin.app.plugins) == null ? void 0 : _a.plugins) == null ? void 0 : _b["ai-providers"];
+      if (!((_c = aiProvidersPlugin == null ? void 0 : aiProvidersPlugin.aiProviders) == null ? void 0 : _c.providers))
+        return null;
+      const provider = aiProvidersPlugin.aiProviders.providers.find((p) => {
+        const pId = p.id || p.name || p.type || "unknown";
+        return pId === providerId;
+      });
+      if (!provider || !provider.models)
+        return null;
+      const model = provider.models.find((m) => {
+        return typeof m === "string" ? m === modelName : m.name === modelName;
+      });
+      if (!model)
+        return null;
+      if (typeof model === "object" && model.contextLength) {
+        return model.contextLength;
+      }
+      return this.getCommonModelTokenLimit(modelName);
+    } catch (error) {
+      console.warn("Error getting model token limit:", error);
+      return null;
+    }
+  }
+  getCommonModelTokenLimit(modelName) {
+    const modelLower = modelName.toLowerCase();
+    if (modelLower.includes("gpt-4o"))
+      return 128e3;
+    if (modelLower.includes("gpt-4-turbo"))
+      return 128e3;
+    if (modelLower.includes("gpt-4"))
+      return 8192;
+    if (modelLower.includes("gpt-3.5-turbo"))
+      return 16385;
+    if (modelLower.includes("claude-3-5-sonnet"))
+      return 2e5;
+    if (modelLower.includes("claude-3-opus"))
+      return 2e5;
+    if (modelLower.includes("claude-3-sonnet"))
+      return 2e5;
+    if (modelLower.includes("claude-3-haiku"))
+      return 2e5;
+    if (modelLower.includes("gemini-1.5-pro"))
+      return 1e6;
+    if (modelLower.includes("gemini-1.5-flash"))
+      return 1e6;
+    if (modelLower.includes("gemini-pro"))
+      return 32768;
+    return 4096;
+  }
+  calculateContextTokens() {
+    let totalTokens = 0;
+    try {
+      const chatLeaf = this.plugin.app.workspace.getLeavesOfType("writerr-chat-view")[0];
+      const chatView = chatLeaf == null ? void 0 : chatLeaf.view;
+      if (!chatView)
+        return 0;
+      const currentSession = this.plugin.currentSession;
+      if (currentSession == null ? void 0 : currentSession.messages) {
+        totalTokens += currentSession.messages.reduce((sum, msg) => {
+          return sum + this.estimateTokens(msg.content);
+        }, 0);
+      }
+      const contextArea = chatView.contextArea;
+      if (contextArea) {
+        const documents = contextArea.getDocuments();
+        totalTokens += documents.length * 1e3;
+      }
+      const inputArea = chatView.chatInput;
+      if (inputArea && inputArea.getValue) {
+        const currentInput = inputArea.getValue();
+        totalTokens += this.estimateTokens(currentInput);
+      }
+    } catch (error) {
+      console.warn("Error calculating context tokens:", error);
+    }
+    return totalTokens;
+  }
+  estimateTokens(text) {
+    if (!text)
+      return 0;
+    return Math.ceil(text.length / 4);
   }
   getProviderDisplayName(providerId, provider) {
     if (provider) {
@@ -2672,29 +2871,7 @@ var ChatToolbar = class extends BaseComponent {
     return families;
   }
   updateStatusIndicator() {
-    var _a, _b;
-    if (!this.statusIndicator)
-      return;
-    const hasEditorialEngine = !!((_a = window.Writerr) == null ? void 0 : _a.editorial);
-    const hasTrackEdits = !!((_b = window.WriterrlAPI) == null ? void 0 : _b.trackEdits);
-    let color = "var(--color-green)";
-    let status = "All systems ready";
-    if (!hasEditorialEngine && !hasTrackEdits) {
-      color = "var(--color-red)";
-      status = "Limited functionality";
-    } else if (!hasEditorialEngine || !hasTrackEdits) {
-      color = "var(--color-orange)";
-      status = "Some features unavailable";
-    }
-    this.statusIndicator.style.cssText = `
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: ${color};
-      transition: background-color 0.3s ease;
-      flex-shrink: 0;
-    `;
-    this.statusIndicator.title = status;
+    return;
   }
   updateTokenCounter(used, total) {
     if (!this.tokenCounter)
