@@ -975,6 +975,297 @@ var ChatHeader = class extends BaseComponent {
   }
 };
 
+// plugins/writerr-chat/src/components/menus/WriterMenu.ts
+var import_obsidian3 = require("obsidian");
+var WriterMenu = class _WriterMenu {
+  constructor(options = {}) {
+    this.menu = new import_obsidian3.Menu();
+    this.options = {
+      style: "refined",
+      spacing: "comfortable",
+      minWidth: 280,
+      ...options
+    };
+    const styleClass = `writerr-menu-${this.options.style}`;
+    const spacingClass = `writerr-menu-${this.options.spacing}`;
+    const customClass = this.options.className || "";
+    this.options.className = [styleClass, spacingClass, customClass].filter(Boolean).join(" ");
+    const isSubmenu = customClass.includes("writerr-submenu");
+    if (!isSubmenu) {
+      const originalShow = this.menu.showAtMouseEvent.bind(this.menu);
+      const originalShowAtPosition = this.menu.showAtPosition.bind(this.menu);
+      this.menu.showAtMouseEvent = (event) => {
+        const result = originalShow(event);
+        this.applyRefinedStyling();
+        return result;
+      };
+      this.menu.showAtPosition = (position) => {
+        const result = originalShowAtPosition(position);
+        this.applyRefinedStyling();
+        return result;
+      };
+    }
+  }
+  /**
+   * Enhanced debug method to identify actual menu DOM elements
+   */
+  applyRefinedStyling() {
+    console.log("\u{1F3A8} Menu styling removed - using clean defaults");
+  }
+  /**
+   * Add a menu item with optional callback
+   */
+  addItem(title, callback) {
+    this.menu.addItem((item) => {
+      item.setTitle(title);
+      if (callback) {
+        item.onClick(callback);
+      }
+    });
+    return this;
+  }
+  /**
+   * Add a menu item with an icon
+   */
+  addItemWithIcon(title, icon, callback) {
+    this.menu.addItem((item) => {
+      item.setTitle(title);
+      if (icon) {
+        item.setIcon(icon);
+      }
+      if (callback) {
+        item.onClick(callback);
+      }
+    });
+    return this;
+  }
+  /**
+   * Add a checked menu item (for current selections)
+   */
+  addCheckedItem(title, checked = false, callback) {
+    this.menu.addItem((item) => {
+      item.setTitle(title);
+      if (checked) {
+        item.setChecked(true);
+      }
+      if (callback) {
+        item.onClick(callback);
+      }
+    });
+    return this;
+  }
+  /**
+   * Add a submenu with nested items (simplified for now)
+   * Note: Full nested submenus may require a different approach with Obsidian's API
+   */
+  /**
+   * Add a submenu with nested items using Obsidian's native setSubmenu() API
+   */
+  addSubmenu(title, builder) {
+    this.menu.addItem((item) => {
+      item.setTitle(title);
+      const obsidianSubmenu = item.setSubmenu();
+      const writerSubmenu = new _WriterMenu({
+        ...this.options,
+        className: `${this.options.className || ""} writerr-submenu`.trim()
+      });
+      writerSubmenu.menu = obsidianSubmenu;
+      builder(writerSubmenu);
+      setTimeout(() => {
+        const submenuElement = writerSubmenu.menu.dom;
+        if (submenuElement instanceof HTMLElement) {
+          submenuElement.style.setProperty("position", "absolute", "important");
+          submenuElement.style.setProperty("left", "100%", "important");
+          submenuElement.style.setProperty("top", "0", "important");
+          submenuElement.style.setProperty("margin-left", "2px", "important");
+          console.log("\u{1F527} Fixed submenu positioning to prevent overlap");
+        }
+      }, 0);
+    });
+    return this;
+  }
+  /**
+   * Add a separator line
+   */
+  addSeparator() {
+    this.menu.addSeparator();
+    return this;
+  }
+  /**
+   * Add a disabled item (for category headers or unavailable options)
+   */
+  addDisabledItem(title) {
+    this.menu.addItem((item) => {
+      item.setTitle(title);
+      item.setDisabled(true);
+    });
+    return this;
+  }
+  /**
+   * Set the currently selected item (will be highlighted)
+   */
+  setCurrentSelection(selection) {
+    this.currentSelection = selection;
+    return this;
+  }
+  /**
+   * Show menu at mouse cursor position
+   */
+  /**
+   * Show menu at mouse cursor position
+   */
+  showAtMouseEvent(event) {
+    this.lastShowPosition = { x: event.clientX, y: event.clientY };
+    this.menu.showAtMouseEvent(event);
+  }
+  /**
+   * Show menu at a specific position
+   */
+  /**
+   * Show menu at a specific position
+   */
+  showAtPosition(x, y) {
+    this.lastShowPosition = { x, y };
+    this.menu.showAtPosition({ x, y });
+  }
+  /**
+   * Show menu relative to an element
+   */
+  showAtElement(element, options) {
+    const rect = element.getBoundingClientRect();
+    const placement = (options == null ? void 0 : options.placement) || "bottom-start";
+    const offset = (options == null ? void 0 : options.offset) || { x: 0, y: 0 };
+    let x = rect.left + offset.x;
+    let y = rect.bottom + offset.y;
+    switch (placement) {
+      case "bottom-start":
+        x = rect.left + offset.x;
+        y = rect.bottom + offset.y;
+        break;
+      case "bottom-end":
+        x = rect.right + offset.x;
+        y = rect.bottom + offset.y;
+        break;
+      case "top-start":
+        x = rect.left + offset.x;
+        y = rect.top + offset.y;
+        break;
+      case "top-end":
+        x = rect.right + offset.x;
+        y = rect.top + offset.y;
+        break;
+      case "right-start":
+        x = rect.right + offset.x;
+        y = rect.top + offset.y;
+        break;
+      case "right-end":
+        x = rect.right + offset.x;
+        y = rect.bottom + offset.y;
+        break;
+    }
+    this.menu.showAtPosition({ x, y });
+  }
+  /**
+   * Hide the menu
+   */
+  hide() {
+    this.menu.hide();
+  }
+  /**
+   * Get the underlying Obsidian Menu instance (for advanced usage)
+   */
+  getObsidianMenu() {
+    return this.menu;
+  }
+  /**
+   * Get the current menu position (helper for submenu positioning)
+   */
+  getMenuPosition() {
+    return this.lastShowPosition || null;
+  }
+  /**
+   * Static helper to create a menu from a configuration object
+   */
+  static fromConfig(items, options) {
+    const menu = new _WriterMenu(options);
+    const buildItems = (menuItems, targetMenu) => {
+      for (const item of menuItems) {
+        if (item.separator) {
+          targetMenu.addSeparator();
+        } else if (item.submenu) {
+          targetMenu.addSubmenu(item.title, (submenu) => {
+            buildItems(item.submenu, submenu);
+          });
+        } else if (item.disabled) {
+          targetMenu.addDisabledItem(item.title);
+        } else if (item.icon) {
+          targetMenu.addItemWithIcon(item.title, item.icon, item.callback);
+        } else {
+          targetMenu.addItem(item.title, item.callback);
+        }
+      }
+    };
+    buildItems(items, menu);
+    return menu;
+  }
+};
+var WriterMenuFactory = class {
+  /**
+   * Create a model selection menu with Provider → Family → Model hierarchy
+   */
+  /**
+   * Create a model selection menu with Provider → Family → Model hierarchy
+   */
+  static createModelMenu(providers, currentSelection, onSelect) {
+    const menu = new WriterMenu({
+      style: "refined",
+      spacing: "comfortable",
+      className: "writerr-model-menu"
+    });
+    if (currentSelection) {
+      menu.setCurrentSelection(currentSelection);
+    }
+    for (const [providerName, families] of Object.entries(providers)) {
+      menu.addSubmenu(providerName, (providerSubmenu) => {
+        for (const [familyName, models] of Object.entries(families)) {
+          providerSubmenu.addSubmenu(`${familyName}`, (modelSubmenu) => {
+            models.forEach((model) => {
+              const isSelected = currentSelection === `${providerName}:${model}`;
+              modelSubmenu.addCheckedItem(model, isSelected, () => {
+                onSelect == null ? void 0 : onSelect(providerName, model);
+              });
+            });
+          });
+        }
+      });
+    }
+    return menu;
+  }
+  /**
+   * Create a simple prompt selection menu
+   */
+  /**
+   * Create a simple prompt selection menu
+   */
+  static createPromptMenu(prompts, currentSelection, onSelect) {
+    const menu = new WriterMenu({
+      style: "refined",
+      spacing: "comfortable",
+      className: "writerr-prompt-menu"
+    });
+    if (currentSelection) {
+      menu.setCurrentSelection(currentSelection);
+    }
+    prompts.forEach((prompt) => {
+      const isSelected = currentSelection === prompt.path;
+      menu.addCheckedItem(prompt.name, isSelected, () => {
+        onSelect == null ? void 0 : onSelect(prompt.path);
+      });
+    });
+    return menu;
+  }
+};
+
 // plugins/writerr-chat/src/components/ContextArea.ts
 var ContextArea = class extends BaseComponent {
   constructor(options) {
@@ -1042,7 +1333,7 @@ var ContextArea = class extends BaseComponent {
     addDocButton.innerHTML = Icons.plus({ width: 16, height: 16 });
     addDocButton.onclick = (e) => {
       e.stopPropagation();
-      this.showDocumentPicker();
+      this.showDirectoryMenu(e);
     };
     this.addTooltip(addDocButton, "Add document to context");
     this.contextHeader.onclick = (e) => {
@@ -1353,6 +1644,150 @@ var ContextArea = class extends BaseComponent {
       }
     };
   }
+  showDirectoryMenu(event) {
+    try {
+      console.log("\u{1F50D} Building directory menu for file selection");
+      const directoryMap = this.buildDirectoryMap();
+      if (Object.keys(directoryMap).length === 0) {
+        console.log("No directories found in vault");
+        return;
+      }
+      const menu = this.createDirectoryMenu(directoryMap);
+      menu.showAtMouseEvent(event);
+    } catch (error) {
+      console.error("WriterMenu: Error showing directory menu:", error);
+      this.showDocumentPicker();
+    }
+  }
+  buildDirectoryMap() {
+    const directoryMap = {};
+    console.log("\u{1F3DB}\uFE0F Vault info:", this.plugin.app.vault.getName());
+    console.log("\u{1F3DB}\uFE0F Vault adapter:", this.plugin.app.vault.adapter.constructor.name);
+    const allFiles = this.plugin.app.vault.getAllLoadedFiles();
+    const supportedExtensions = [
+      // Documents
+      ".md",
+      ".txt",
+      ".pdf",
+      ".doc",
+      ".docx",
+      ".rtf",
+      ".odt",
+      // Spreadsheets  
+      ".xls",
+      ".xlsx",
+      ".csv",
+      // Code files
+      ".js",
+      ".ts",
+      ".json",
+      ".html",
+      ".css",
+      ".scss",
+      ".less",
+      ".py",
+      ".java",
+      ".cpp",
+      ".c",
+      ".h",
+      ".php",
+      ".rb",
+      ".go",
+      ".rs",
+      ".swift",
+      ".kt",
+      ".scala",
+      ".sh",
+      ".bash",
+      ".zsh",
+      ".xml",
+      ".yaml",
+      ".yml",
+      ".toml",
+      ".ini",
+      ".env",
+      // Creative writing
+      ".highland",
+      ".fountain",
+      ".celtx",
+      // Other
+      ".log",
+      ".config"
+    ];
+    const supportedFiles = allFiles.filter((file) => {
+      var _a;
+      if (!file.path.includes("."))
+        return false;
+      const extension = "." + ((_a = file.path.split(".").pop()) == null ? void 0 : _a.toLowerCase());
+      return supportedExtensions.includes(extension);
+    });
+    console.log(`\u{1F50D} Processing ${supportedFiles.length} supported files from ${allFiles.length} total files`);
+    console.log("\u{1F4CB} Supported extensions:", supportedExtensions);
+    console.log("\u{1F4CB} Sample files:", supportedFiles.slice(0, 10).map((f) => f.path));
+    for (const file of supportedFiles) {
+      const pathParts = file.path.split("/");
+      console.log(`   Processing: ${file.path} -> ${pathParts.length} parts:`, pathParts);
+      if (pathParts.length === 1) {
+        if (!directoryMap["Root"]) {
+          directoryMap["Root"] = [];
+        }
+        directoryMap["Root"].push(file.path);
+        console.log(`     Added to Root: ${file.path}`);
+      } else {
+        const directoryPath = pathParts.slice(0, -1).join("/");
+        if (!directoryMap[directoryPath]) {
+          directoryMap[directoryPath] = [];
+          console.log(`     Created new directory: ${directoryPath}`);
+        }
+        directoryMap[directoryPath].push(file.path);
+        console.log(`     Added to ${directoryPath}: ${file.path}`);
+      }
+    }
+    console.log("\u{1F5C2}\uFE0F FINAL directory map with", Object.keys(directoryMap).length, "directories");
+    console.log("\u{1F4C1} ALL Directories found:");
+    Object.keys(directoryMap).forEach((dir) => {
+      console.log(`   ${dir}: ${directoryMap[dir].length} files`);
+      console.log(`      Files:`, directoryMap[dir].slice(0, 3), directoryMap[dir].length > 3 ? "..." : "");
+    });
+    return directoryMap;
+  }
+  createDirectoryMenu(directoryMap) {
+    const menu = new WriterMenu({
+      style: "refined",
+      spacing: "comfortable",
+      className: "writerr-directory-menu"
+    });
+    console.log(`\u{1F3A8} Creating menu with ${Object.keys(directoryMap).length} directories`);
+    for (const [directoryName, files] of Object.entries(directoryMap)) {
+      console.log(`   \u{1F3A8} Adding directory submenu: ${directoryName} (${files.length} files)`);
+      menu.addSubmenu(directoryName, (fileSubmenu) => {
+        files.forEach((filePath) => {
+          const fileName = filePath.split("/").pop() || filePath;
+          console.log(`      \u{1F4C4} Adding file item: ${fileName} -> ${filePath}`);
+          fileSubmenu.addItem(fileName, () => {
+            console.log(`\u{1F4C4} Selected file: ${filePath}`);
+            this.addDocumentFromPath(filePath);
+          });
+        });
+      });
+    }
+    console.log("\u{1F3A8} Menu creation completed");
+    return menu;
+  }
+  addDocumentFromPath(filePath) {
+    const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
+    if (!file) {
+      console.error("File not found:", filePath);
+      return;
+    }
+    const doc = {
+      path: file.path,
+      name: file.name.replace(".md", ""),
+      content: ""
+      // Will be loaded when needed
+    };
+    this.addDocument(doc);
+  }
   createDocumentPickerContent(modal, overlay, styleEl) {
     const header = modal.createEl("div");
     header.style.cssText = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;";
@@ -1652,297 +2087,6 @@ var ChatInput = class extends BaseComponent {
     const maxHeight = 160;
     const newHeight = Math.min(Math.max(scrollHeight, 44), maxHeight);
     this.messageInput.style.height = newHeight + "px";
-  }
-};
-
-// plugins/writerr-chat/src/components/menus/WriterMenu.ts
-var import_obsidian3 = require("obsidian");
-var WriterMenu = class _WriterMenu {
-  constructor(options = {}) {
-    this.menu = new import_obsidian3.Menu();
-    this.options = {
-      style: "refined",
-      spacing: "comfortable",
-      minWidth: 280,
-      ...options
-    };
-    const styleClass = `writerr-menu-${this.options.style}`;
-    const spacingClass = `writerr-menu-${this.options.spacing}`;
-    const customClass = this.options.className || "";
-    this.options.className = [styleClass, spacingClass, customClass].filter(Boolean).join(" ");
-    const isSubmenu = customClass.includes("writerr-submenu");
-    if (!isSubmenu) {
-      const originalShow = this.menu.showAtMouseEvent.bind(this.menu);
-      const originalShowAtPosition = this.menu.showAtPosition.bind(this.menu);
-      this.menu.showAtMouseEvent = (event) => {
-        const result = originalShow(event);
-        this.applyRefinedStyling();
-        return result;
-      };
-      this.menu.showAtPosition = (position) => {
-        const result = originalShowAtPosition(position);
-        this.applyRefinedStyling();
-        return result;
-      };
-    }
-  }
-  /**
-   * Enhanced debug method to identify actual menu DOM elements
-   */
-  applyRefinedStyling() {
-    console.log("\u{1F3A8} Menu styling removed - using clean defaults");
-  }
-  /**
-   * Add a menu item with optional callback
-   */
-  addItem(title, callback) {
-    this.menu.addItem((item) => {
-      item.setTitle(title);
-      if (callback) {
-        item.onClick(callback);
-      }
-    });
-    return this;
-  }
-  /**
-   * Add a menu item with an icon
-   */
-  addItemWithIcon(title, icon, callback) {
-    this.menu.addItem((item) => {
-      item.setTitle(title);
-      if (icon) {
-        item.setIcon(icon);
-      }
-      if (callback) {
-        item.onClick(callback);
-      }
-    });
-    return this;
-  }
-  /**
-   * Add a checked menu item (for current selections)
-   */
-  addCheckedItem(title, checked = false, callback) {
-    this.menu.addItem((item) => {
-      item.setTitle(title);
-      if (checked) {
-        item.setChecked(true);
-      }
-      if (callback) {
-        item.onClick(callback);
-      }
-    });
-    return this;
-  }
-  /**
-   * Add a submenu with nested items (simplified for now)
-   * Note: Full nested submenus may require a different approach with Obsidian's API
-   */
-  /**
-   * Add a submenu with nested items using Obsidian's native setSubmenu() API
-   */
-  addSubmenu(title, builder) {
-    this.menu.addItem((item) => {
-      item.setTitle(title);
-      const obsidianSubmenu = item.setSubmenu();
-      const writerSubmenu = new _WriterMenu({
-        ...this.options,
-        className: `${this.options.className || ""} writerr-submenu`.trim()
-      });
-      writerSubmenu.menu = obsidianSubmenu;
-      builder(writerSubmenu);
-      setTimeout(() => {
-        const submenuElement = writerSubmenu.menu.dom;
-        if (submenuElement instanceof HTMLElement) {
-          submenuElement.style.setProperty("position", "absolute", "important");
-          submenuElement.style.setProperty("left", "100%", "important");
-          submenuElement.style.setProperty("top", "0", "important");
-          submenuElement.style.setProperty("margin-left", "2px", "important");
-          console.log("\u{1F527} Fixed submenu positioning to prevent overlap");
-        }
-      }, 0);
-    });
-    return this;
-  }
-  /**
-   * Add a separator line
-   */
-  addSeparator() {
-    this.menu.addSeparator();
-    return this;
-  }
-  /**
-   * Add a disabled item (for category headers or unavailable options)
-   */
-  addDisabledItem(title) {
-    this.menu.addItem((item) => {
-      item.setTitle(title);
-      item.setDisabled(true);
-    });
-    return this;
-  }
-  /**
-   * Set the currently selected item (will be highlighted)
-   */
-  setCurrentSelection(selection) {
-    this.currentSelection = selection;
-    return this;
-  }
-  /**
-   * Show menu at mouse cursor position
-   */
-  /**
-   * Show menu at mouse cursor position
-   */
-  showAtMouseEvent(event) {
-    this.lastShowPosition = { x: event.clientX, y: event.clientY };
-    this.menu.showAtMouseEvent(event);
-  }
-  /**
-   * Show menu at a specific position
-   */
-  /**
-   * Show menu at a specific position
-   */
-  showAtPosition(x, y) {
-    this.lastShowPosition = { x, y };
-    this.menu.showAtPosition({ x, y });
-  }
-  /**
-   * Show menu relative to an element
-   */
-  showAtElement(element, options) {
-    const rect = element.getBoundingClientRect();
-    const placement = (options == null ? void 0 : options.placement) || "bottom-start";
-    const offset = (options == null ? void 0 : options.offset) || { x: 0, y: 0 };
-    let x = rect.left + offset.x;
-    let y = rect.bottom + offset.y;
-    switch (placement) {
-      case "bottom-start":
-        x = rect.left + offset.x;
-        y = rect.bottom + offset.y;
-        break;
-      case "bottom-end":
-        x = rect.right + offset.x;
-        y = rect.bottom + offset.y;
-        break;
-      case "top-start":
-        x = rect.left + offset.x;
-        y = rect.top + offset.y;
-        break;
-      case "top-end":
-        x = rect.right + offset.x;
-        y = rect.top + offset.y;
-        break;
-      case "right-start":
-        x = rect.right + offset.x;
-        y = rect.top + offset.y;
-        break;
-      case "right-end":
-        x = rect.right + offset.x;
-        y = rect.bottom + offset.y;
-        break;
-    }
-    this.menu.showAtPosition({ x, y });
-  }
-  /**
-   * Hide the menu
-   */
-  hide() {
-    this.menu.hide();
-  }
-  /**
-   * Get the underlying Obsidian Menu instance (for advanced usage)
-   */
-  getObsidianMenu() {
-    return this.menu;
-  }
-  /**
-   * Get the current menu position (helper for submenu positioning)
-   */
-  getMenuPosition() {
-    return this.lastShowPosition || null;
-  }
-  /**
-   * Static helper to create a menu from a configuration object
-   */
-  static fromConfig(items, options) {
-    const menu = new _WriterMenu(options);
-    const buildItems = (menuItems, targetMenu) => {
-      for (const item of menuItems) {
-        if (item.separator) {
-          targetMenu.addSeparator();
-        } else if (item.submenu) {
-          targetMenu.addSubmenu(item.title, (submenu) => {
-            buildItems(item.submenu, submenu);
-          });
-        } else if (item.disabled) {
-          targetMenu.addDisabledItem(item.title);
-        } else if (item.icon) {
-          targetMenu.addItemWithIcon(item.title, item.icon, item.callback);
-        } else {
-          targetMenu.addItem(item.title, item.callback);
-        }
-      }
-    };
-    buildItems(items, menu);
-    return menu;
-  }
-};
-var WriterMenuFactory = class {
-  /**
-   * Create a model selection menu with Provider → Family → Model hierarchy
-   */
-  /**
-   * Create a model selection menu with Provider → Family → Model hierarchy
-   */
-  static createModelMenu(providers, currentSelection, onSelect) {
-    const menu = new WriterMenu({
-      style: "refined",
-      spacing: "comfortable",
-      className: "writerr-model-menu"
-    });
-    if (currentSelection) {
-      menu.setCurrentSelection(currentSelection);
-    }
-    for (const [providerName, families] of Object.entries(providers)) {
-      menu.addSubmenu(providerName, (providerSubmenu) => {
-        for (const [familyName, models] of Object.entries(families)) {
-          providerSubmenu.addSubmenu(`${familyName}`, (modelSubmenu) => {
-            models.forEach((model) => {
-              const isSelected = currentSelection === `${providerName}:${model}`;
-              modelSubmenu.addCheckedItem(model, isSelected, () => {
-                onSelect == null ? void 0 : onSelect(providerName, model);
-              });
-            });
-          });
-        }
-      });
-    }
-    return menu;
-  }
-  /**
-   * Create a simple prompt selection menu
-   */
-  /**
-   * Create a simple prompt selection menu
-   */
-  static createPromptMenu(prompts, currentSelection, onSelect) {
-    const menu = new WriterMenu({
-      style: "refined",
-      spacing: "comfortable",
-      className: "writerr-prompt-menu"
-    });
-    if (currentSelection) {
-      menu.setCurrentSelection(currentSelection);
-    }
-    prompts.forEach((prompt) => {
-      const isSelected = currentSelection === prompt.path;
-      menu.addCheckedItem(prompt.name, isSelected, () => {
-        onSelect == null ? void 0 : onSelect(prompt.path);
-      });
-    });
-    return menu;
   }
 };
 

@@ -1,6 +1,7 @@
 import { BaseComponent } from './BaseComponent';
 import { ComponentOptions, ContextAreaEvents, DocumentContext } from './types';
 import { Icons, ICON_STYLES } from '../utils/icons';
+import { WriterMenu } from './menus/WriterMenu';
 
 interface ContextAreaOptions extends ComponentOptions {
   events: ContextAreaEvents;
@@ -94,7 +95,8 @@ export class ContextArea extends BaseComponent {
     addDocButton.innerHTML = Icons.plus({ width: 16, height: 16 });
     addDocButton.onclick = (e) => {
       e.stopPropagation();
-      this.showDocumentPicker();
+      // NEW: Show WriterMenu directory picker instead of modal
+      this.showDirectoryMenu(e as MouseEvent);
     };
 
     // Add unified tooltip
@@ -473,6 +475,154 @@ export class ContextArea extends BaseComponent {
         document.head.removeChild(modalStyle);
       }
     };
+  }
+
+  private showDirectoryMenu(event: MouseEvent): void {
+    try {
+      console.log('🔍 Building directory menu for file selection');
+      
+      // Build directory structure from vault files
+      const directoryMap = this.buildDirectoryMap();
+      
+      if (Object.keys(directoryMap).length === 0) {
+        console.log('No directories found in vault');
+        return;
+      }
+
+      // Create WriterMenu with Directory → Subdirectory → File hierarchy
+      const menu = this.createDirectoryMenu(directoryMap);
+      
+      menu.showAtMouseEvent(event);
+    } catch (error) {
+      console.error('WriterMenu: Error showing directory menu:', error);
+      // Fallback to original modal if WriterMenu fails
+      this.showDocumentPicker();
+    }
+  }
+
+  private buildDirectoryMap(): Record<string, string[]> {
+    const directoryMap: Record<string, string[]> = {};
+    
+    // Get all files from vault (not just markdown)
+    console.log('🏛️ Vault info:', this.plugin.app.vault.getName());
+    console.log('🏛️ Vault adapter:', this.plugin.app.vault.adapter.constructor.name);
+    
+    const allFiles = this.plugin.app.vault.getAllLoadedFiles();
+    
+    // Define supported file extensions
+    const supportedExtensions = [
+      // Documents
+      '.md', '.txt', '.pdf', '.doc', '.docx', '.rtf', '.odt',
+      // Spreadsheets  
+      '.xls', '.xlsx', '.csv',
+      // Code files
+      '.js', '.ts', '.json', '.html', '.css', '.scss', '.less',
+      '.py', '.java', '.cpp', '.c', '.h', '.php', '.rb', '.go',
+      '.rs', '.swift', '.kt', '.scala', '.sh', '.bash', '.zsh',
+      '.xml', '.yaml', '.yml', '.toml', '.ini', '.env',
+      // Creative writing
+      '.highland', '.fountain', '.celtx',
+      // Other
+      '.log', '.config'
+    ];
+    
+    // Filter for supported file types (exclude directories)
+    const supportedFiles = allFiles.filter(file => {
+      // Skip directories (they don't have extensions)
+      if (!file.path.includes('.')) return false;
+      
+      const extension = '.' + file.path.split('.').pop()?.toLowerCase();
+      return supportedExtensions.includes(extension);
+    });
+    
+    console.log(`🔍 Processing ${supportedFiles.length} supported files from ${allFiles.length} total files`);
+    console.log('📋 Supported extensions:', supportedExtensions);
+    console.log('📋 Sample files:', supportedFiles.slice(0, 10).map(f => f.path));
+    
+    for (const file of supportedFiles) {
+      const pathParts = file.path.split('/');
+      console.log(`   Processing: ${file.path} -> ${pathParts.length} parts:`, pathParts);
+      
+      if (pathParts.length === 1) {
+        // Root level file
+        if (!directoryMap['Root']) {
+          directoryMap['Root'] = [];
+        }
+        directoryMap['Root'].push(file.path);
+        console.log(`     Added to Root: ${file.path}`);
+      } else {
+        // File in directory - use the full directory path as the key
+        const directoryPath = pathParts.slice(0, -1).join('/');
+        
+        if (!directoryMap[directoryPath]) {
+          directoryMap[directoryPath] = [];
+          console.log(`     Created new directory: ${directoryPath}`);
+        }
+        
+        directoryMap[directoryPath].push(file.path);
+        console.log(`     Added to ${directoryPath}: ${file.path}`);
+      }
+    }
+    
+    console.log('🗂️ FINAL directory map with', Object.keys(directoryMap).length, 'directories');
+    console.log('📁 ALL Directories found:');
+    Object.keys(directoryMap).forEach(dir => {
+      console.log(`   ${dir}: ${directoryMap[dir].length} files`);
+      console.log(`      Files:`, directoryMap[dir].slice(0, 3), directoryMap[dir].length > 3 ? '...' : '');
+    });
+    return directoryMap;
+  }
+
+
+  private createDirectoryMenu(directoryMap: Record<string, string[]>): WriterMenu {
+    const menu = new WriterMenu({
+      style: 'refined',
+      spacing: 'comfortable',
+      className: 'writerr-directory-menu'
+    });
+
+    console.log(`🎨 Creating menu with ${Object.keys(directoryMap).length} directories`);
+
+    // Build Directory → File hierarchy (like Provider → Model)
+    for (const [directoryName, files] of Object.entries(directoryMap)) {
+      console.log(`   🎨 Adding directory submenu: ${directoryName} (${files.length} files)`);
+      
+      menu.addSubmenu(directoryName, (fileSubmenu) => {
+        files.forEach(filePath => {
+          const fileName = filePath.split('/').pop() || filePath;
+          
+          console.log(`      📄 Adding file item: ${fileName} -> ${filePath}`);
+          
+          fileSubmenu.addItem(fileName, () => {
+            console.log(`📄 Selected file: ${filePath}`);
+            this.addDocumentFromPath(filePath);
+          });
+        });
+      });
+    }
+
+    console.log('🎨 Menu creation completed');
+    return menu;
+  }
+
+  private addDocumentFromPath(filePath: string): void {
+    // Find the TFile object for this path
+    const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
+    
+    if (!file) {
+      console.error('File not found:', filePath);
+      return;
+    }
+
+    // Create DocumentContext object
+    const doc: DocumentContext = {
+      path: file.path,
+      name: file.name.replace('.md', ''),
+      content: '' // Will be loaded when needed
+    };
+
+    // Add to context using existing method
+    this.addDocument(doc);
   }
 
   private createDocumentPickerContent(modal: HTMLElement, overlay: HTMLElement, styleEl: HTMLStyleElement): void {
