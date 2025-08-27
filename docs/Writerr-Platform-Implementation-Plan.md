@@ -590,6 +590,129 @@ console.log(`🎯 [${BUILD_VERSION}] processWithAIProvider ENTRY`);
 - [ ] Settings persist correctly
 - [ ] Team sharing functionality works
 
+#### Task 1.3.4: Unified Menu System Implementation ✅ COMPLETED
+**Priority**: High  
+**Estimated Time**: 2 days  
+**Dependencies**: Task 1.3.3  
+**Completed**: 2025-08-27
+
+**Problem Statement**:
+Currently, all menus use different implementations (HTML select elements, custom modals, button-based dropdowns) creating inconsistent UX and maintenance overhead. Need a unified menu family using Obsidian's native Menu class for consistent behavior, theming, and nested hierarchy support.
+
+**Specifications**:
+- ✅ Replace HTML select elements with Obsidian Menu class throughout chat interface
+- ✅ Implement nested Provider → Model structure in model selection
+- ✅ Convert prompt dropdown to use Menu class with dynamic folder loading
+- ✅ Convert context area + button to use Menu class with Directory → File hierarchy
+- ✅ Create reusable WriterMenu utility class for future menu implementations
+- ✅ Support hierarchical menu structures with proper keyboard navigation
+- ✅ Ensure all menus follow Obsidian's native theming and accessibility standards
+
+**Implementation Results**:
+
+1. **Model Selection Menu**:
+   - ✅ Fixed provider display names (OpenAI, Anthropic, Google vs cryptic IDs)
+   - ✅ Enhanced `getProviderDisplayName()` to handle dynamic provider IDs
+   - ✅ Clean text-only menu without icons for consistency
+   - ✅ Proper provider content inference from JSON structure
+
+2. **Prompt Selection Menu**:
+   - ✅ Converted from HTML select to WriterMenu button
+   - ✅ Maintained dynamic folder loading from `/prompts/` directory
+   - ✅ Built new WriterMenu alongside old system, then retired old implementation
+   - ✅ Preserved all existing functionality while gaining native Obsidian theming
+
+3. **Context Area Menu (+Add Button)**:
+   - ✅ Replaced modal with nested WriterMenu showing Directory → File hierarchy
+   - ✅ Added support for 43+ file extensions (markdown, PDFs, code files, configs)
+   - ✅ Used `getAllLoadedFiles()` with extension filtering vs just `getMarkdownFiles()`
+   - ✅ Full vault traversal with proper nesting structure
+
+4. **WriterMenu Base Class**:
+   - ✅ Comprehensive wrapper around Obsidian Menu class with factory patterns
+   - ✅ `createModelMenu()`, `createPromptMenu()` factory methods
+   - ✅ Added missing `addItemWithIcon()` method for API completeness
+   - ✅ Clean text-only design without icons per user preference
+
+**Technical Implementation**:
+```typescript
+// Enhanced provider display name handling
+private getProviderDisplayName(providerId: string, provider?: any): string {
+  // Handle provider object display names
+  if (provider?.displayName) return provider.displayName;
+  if (provider?.name && !provider.name.startsWith('id-')) return provider.name;
+  
+  // Infer from provider content for dynamic IDs
+  if (providerId.startsWith('id-') && provider) {
+    const providerStr = JSON.stringify(provider).toLowerCase();
+    if (providerStr.includes('openai')) return 'OpenAI';
+    if (providerStr.includes('anthropic')) return 'Anthropic';
+    // ... other inferences
+  }
+  
+  // Static mapping fallback
+  const displayNames: Record<string, string> = {
+    'openai': 'OpenAI', 'anthropic': 'Anthropic', 'google': 'Google'
+  };
+  return displayNames[providerId.toLowerCase()] || providerId;
+}
+
+// File extension support for context menu
+const supportedExtensions = [
+  // Documents: .md, .txt, .pdf, .doc, .docx, .rtf, .odt
+  // Code files: .js, .ts, .json, .html, .css, .py, .java
+  // Config files: .yml, .yaml, .toml, .ini, .env
+  // 43 total extensions supported
+];
+```
+
+**Implementation Files**:
+- ✅ `src/components/menus/WriterMenu.ts` - Unified menu utility class
+- ✅ `src/components/ChatToolbar.ts` - Model and prompt menu conversion
+- ✅ `src/components/ContextArea.ts` - Context menu with file system traversal
+- ✅ Removed all icon dependencies for clean text-only menus
+
+**Acceptance Criteria**:
+- ✅ All three dropdown menus (Model, Prompt, Add Context) using WriterMenu system
+- ✅ Provider display names showing correctly instead of cryptic IDs
+- ✅ Dynamic prompt loading from folders preserved
+- ✅ Context menu supports 43+ file types with full directory traversal
+- ✅ Clean text-only design without icons for consistency
+- ✅ Native Obsidian Menu styling, positioning, and keyboard navigation
+- ✅ All previous functionality preserved while gaining unified system
+- ✅ Plugin builds successfully with no console errors
+
+**Commits**:
+- `working model selector menu` - Fixed provider display names
+- `toolbar dropdown menus working` - Converted prompt selector
+- `add to context menu works` - Converted context area + button
+
+**Key Insights**:
+- Dynamic provider IDs require content inference, not just static mapping
+- Building new system alongside old prevents regression during development
+- File system adapter provides direct vault access for comprehensive file listing
+- Text-only menus provide cleaner, more consistent user experience
+- WriterMenu pattern enables easy extension to other UI elements
+
+**Example Usage**:
+```typescript
+// Model menu with provider inference
+const modelMenu = WriterMenuFactory.createModelMenu(
+  availableProviders,
+  (providerId, modelId) => this.selectModel(providerId, modelId)
+);
+
+// Dynamic prompt menu
+const promptMenu = WriterMenuFactory.createPromptMenu(
+  this.getPromptFiles(),
+  (promptPath) => this.selectPrompt(promptPath)
+);
+
+// File system context menu
+const contextMenu = new WriterMenu();
+await this.buildDirectoryMenu(contextMenu, vault.adapter);
+```
+
 ### 1.4 Writerr Platform Design System
 
 #### Task 1.4.1: Platform Design System Foundation

@@ -19,7 +19,7 @@ export class ChatView extends ItemView {
   private messageList: MessageList;
   private contextArea: ContextArea;
   private chatInput: ChatInput;
-  private chatToolbar: ChatToolbar;
+  public chatToolbar: ChatToolbar;
   private sessionManager: SessionManager;
 
   constructor(leaf: WorkspaceLeaf, plugin: WriterrlChatPlugin) {

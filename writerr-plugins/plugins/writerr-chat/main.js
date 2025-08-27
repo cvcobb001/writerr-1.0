@@ -497,7 +497,7 @@ var ICON_PATHS = {
   // Communication & Actions
   send: ["m22 2-7 20-4-9-9-4z", "M22 2 11 13"],
   messageCircle: ["M7.9 20A9 9 0 1 0 4 16.1L2 22z"],
-  bot: ["M12 8V4H8", "M16 8V4h-4", "M10 18h4", "M10 12h4", "M8 4c0-1.1.9-2 2-2h4c1.1 0 2 .9 2 2v4c0 1.1-.9 2-2 2h-4c-1.1 0-2-.9-2-2V4z"],
+  bot: ['path d="M12 6V2H8"', 'path d="m8 18-4 4V8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2Z"', 'path d="M2 12h2"', 'path d="M9 11v2"', 'path d="M15 11v2"', 'path d="M20 12h2"'],
   user: ["M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2", 'circle cx="12" cy="7" r="4"'],
   // File & Document Actions  
   filePlus2: ["M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z", "M14 2v6h6", "M12 12v6", "M9 15h6"],
@@ -4265,7 +4265,7 @@ ${context}`
       });
     }
     try {
-      const response = await aiProviders.execute({
+      const executeParams = {
         messages,
         model: ((_c = this.settings.selectedModel) == null ? void 0 : _c.split(":")[1]) || providerObject.model,
         provider: providerObject,
@@ -4277,11 +4277,19 @@ ${context}`
           intent: parsedMessage.intent,
           mode: parsedMessage.mode
         }
-      });
+      };
+      console.log("\u{1F527} AI Provider execute params:", JSON.stringify(executeParams, null, 2));
+      console.log("\u{1F527} Provider object:", JSON.stringify(providerObject, null, 2));
+      console.log("\u{1F527} Available aiProviders methods:", Object.keys(aiProviders));
+      const response = await aiProviders.execute(executeParams);
+      console.log("\u{1F527} AI Provider raw response:", JSON.stringify(response, null, 2));
+      if (!response || !response.content && !response.message) {
+        throw new Error(`AI Provider returned empty response: ${JSON.stringify(response)}`);
+      }
       const assistantMessage = {
         id: generateId(),
         role: "assistant",
-        content: response.content || response.message || "No response from AI provider",
+        content: response.content || response.message,
         timestamp: Date.now(),
         metadata: {
           aiProvidersUsed: true,
@@ -4292,9 +4300,23 @@ ${context}`
         }
       };
       this.currentSession.messages.push(assistantMessage);
+      this.updateTokenCounterFromResponse(response);
     } catch (error) {
       console.error("AI Providers execution error:", error);
       throw new Error(`AI Provider error: ${error.message}`);
+    }
+  }
+  updateTokenCounterFromResponse(response) {
+    var _a, _b, _c;
+    try {
+      const tokensUsed = ((_a = response == null ? void 0 : response.usage) == null ? void 0 : _a.totalTokens) || ((_b = response == null ? void 0 : response.usage) == null ? void 0 : _b.total_tokens) || 0;
+      const maxTokens = this.settings.maxTokens || 2e3;
+      const chatView = (_c = this.app.workspace.getLeavesOfType(VIEW_TYPE_CHAT)[0]) == null ? void 0 : _c.view;
+      if (chatView && chatView.chatToolbar) {
+        chatView.chatToolbar.updateTokenCounter(tokensUsed, maxTokens);
+      }
+    } catch (error) {
+      console.error("Error updating token counter:", error);
     }
   }
   formatEditorialEngineResponse(result, parsedMessage) {

@@ -382,6 +382,8 @@ select:hover {
 .chat-control-button:last-child {
   display: none !important;
 }
+
+/* Clean menu styling - no debug colors */
 `;
 
     // Force remove any existing styles and recreate with timestamp
@@ -398,7 +400,7 @@ select:hover {
     document.head.appendChild(styleEl);
     styleEl.textContent = styles;
     
-    console.log(`Writerr Chat: Force reloaded CSS styles at ${timestamp}`);
+    console.log(`Writerr Chat: DEBUG CSS applied at ${timestamp} - looking for menu selectors`);
   }
 
   onunload() {
@@ -720,99 +722,127 @@ select:hover {
   private async processWithAIProvider(parsedMessage: ParsedMessage, context?: string): Promise<void> {
     console.log(`🎯 [${BUILD_VERSION}] processWithAIProvider ENTRY - Using provider OBJECT method`);
     
-    // Get AI Providers plugin and SDK - use the same pattern as the toolbar
+    // Get AI Providers plugin and SDK - back to original approach
     const aiProvidersPlugin = (this.app as any).plugins?.plugins?.['ai-providers'];
     if (!aiProvidersPlugin) {
-      throw new Error('AI Providers plugin not found. Please install and enable the AI Providers plugin.');
+      console.log('❌ AI Providers plugin not found');
+      throw new Error('AI Providers plugin not available. Please ensure it is installed and enabled.');
     }
-
+    
     // Access the aiProviders SDK object (same as toolbar)
     const aiProviders = aiProvidersPlugin.aiProviders;
     if (!aiProviders) {
-      throw new Error('AI Providers SDK not available.');
+      throw new Error('AI Providers SDK not available in plugin');
     }
 
-    // Get the selected model from toolbar (if available)
-    const chatLeaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_CHAT)[0];
-    let selectedProvider = this.settings.defaultProvider;
-    let selectedModel = 'gpt-4'; // fallback
-    let providerObject = null; // Store the actual provider object
+    // Get the current provider selection from settings or use the first available
+    let providerObject: any = null;
     
-    if (chatLeaf && chatLeaf.view instanceof ChatView) {
-      // Try to get selected model from chat view toolbar
-      const toolbar = (chatLeaf.view as any).chatToolbar;
-      if (toolbar) {
-        const modelSelection = toolbar.getSelectedModel();
-        if (modelSelection) {
-          selectedProvider = modelSelection.provider;
-          selectedModel = modelSelection.model;
-        }
-      }
-    }
-
-    // Find the actual provider object from the providers array
-    if (aiProviders.providers && Array.isArray(aiProviders.providers)) {
-      providerObject = aiProviders.providers.find((p: any) => 
-        p.id === selectedProvider || p.name === selectedProvider || p.type === selectedProvider
-      );
+    // First try: Use selected provider from settings
+    if (this.settings.selectedModel && this.settings.selectedModel.includes(':')) {
+      const [providerId] = this.settings.selectedModel.split(':');
+      console.log(`🔍 Looking for provider: ${providerId}`);
       
-      if (providerObject) {
-        console.log(`🎯 [${BUILD_VERSION}] Found provider OBJECT:`, providerObject);
-      } else {
-        console.warn(`🎯 [${BUILD_VERSION}] Provider object not found for: ${selectedProvider}`);
-        // Fallback to first available provider
-        providerObject = aiProviders.providers[0];
-        console.log(`🎯 [${BUILD_VERSION}] Using fallback provider OBJECT:`, providerObject);
+      if (aiProviders.providers && Array.isArray(aiProviders.providers)) {
+        providerObject = aiProviders.providers.find((p: any) => 
+          p.id === providerId || p.name === providerId
+        );
       }
+      
+      console.log(providerObject ? '✅ Found selected provider' : '❌ Selected provider not found');
     }
-
+    
+    // Fallback: Use first available provider
+    if (!providerObject && aiProviders.providers && Array.isArray(aiProviders.providers) && aiProviders.providers.length > 0) {
+      providerObject = aiProviders.providers[0];
+      console.log('🔄 Using first available provider:', providerObject?.name || providerObject?.id);
+    }
+    
     if (!providerObject) {
-      throw new Error('No providers available in AI Providers plugin.');
+      throw new Error('No AI providers configured');
     }
 
-    // Add context to the prompt if available
-    let prompt = parsedMessage.originalContent;
+    // Build conversation context
+    const messages = this.currentSession!.messages.map(msg => ({
+      role: msg.role,
+      content: msg.content
+    }));
+
+    // Add context if provided
     if (context) {
-      prompt = `Context from document:\n${context}\n\nUser request: ${prompt}`;
+      messages.unshift({
+        role: 'system',
+        content: `Context from current document:\n\n${context}`
+      });
     }
 
     try {
-      console.log(`🎯 [${BUILD_VERSION}] EXECUTE with provider OBJECT (not string):`, {
+      // Debug: Log the execute parameters
+      const executeParams = {
+        messages,
+        model: this.settings.selectedModel?.split(':')[1] || providerObject.model,
         provider: providerObject,
-        model: selectedModel,
-        buildVersion: BUILD_VERSION
-      });
-      
-      // Use AI Providers SDK with the actual provider object
-      const response = await aiProviders.execute({
-        provider: providerObject, // Pass the actual provider object
-        prompt: prompt,
-        model: selectedModel, // Also pass the specific model
-        onProgress: (chunk: string, full: string) => {
-          console.log(`🎯 [${BUILD_VERSION}] Streaming chunk:`, chunk.length, 'chars');
+        temperature: this.settings.temperature || 0.7,
+        maxTokens: this.settings.maxTokens || 2000,
+        metadata: {
+          source: 'writerr-chat',
+          sessionId: this.currentSession!.id,
+          intent: parsedMessage.intent,
+          mode: parsedMessage.mode
         }
-      });
+      };
+      
+      console.log('🔧 AI Provider execute params:', JSON.stringify(executeParams, null, 2));
+      console.log('🔧 Provider object:', JSON.stringify(providerObject, null, 2));
+      console.log('🔧 Available aiProviders methods:', Object.keys(aiProviders));
+      
+      // Use AI Providers SDK execute method
+      const response = await aiProviders.execute(executeParams);
+      console.log('🔧 AI Provider raw response:', JSON.stringify(response, null, 2));
 
-      console.log(`🎯 [${BUILD_VERSION}] AI response SUCCESS:`, response?.length || 0, 'characters');
+      // Validate response
+      if (!response || (!response.content && !response.message)) {
+        throw new Error(`AI Provider returned empty response: ${JSON.stringify(response)}`);
+      }
 
+      // Create assistant response
       const assistantMessage: ChatMessage = {
         id: generateId(),
         role: 'assistant',
-        content: response,
+        content: response.content || response.message,
         timestamp: Date.now(),
         metadata: {
-          provider: selectedProvider,
-          providerType: providerObject.type || 'unknown',
-          model: selectedModel,
           aiProvidersUsed: true,
-          buildVersion: BUILD_VERSION
+          provider: providerObject.name || providerObject.id,
+          model: this.settings.selectedModel?.split(':')[1] || providerObject.model,
+          tokensUsed: response.usage?.totalTokens,
+          temperature: this.settings.temperature || 0.7
         }
       };
 
       this.currentSession!.messages.push(assistantMessage);
+      
+      // Update token counter if available
+      this.updateTokenCounterFromResponse(response);
+      
     } catch (error) {
-      console.error(`🎯 [${BUILD_VERSION}] AI Providers ERROR:`, error);
-      throw new Error(`AI processing failed: ${error.message}`);
+      console.error('AI Providers execution error:', error);
+      throw new Error(`AI Provider error: ${error.message}`);
+    }
+  }
+
+  private updateTokenCounterFromResponse(response: any): void {
+    try {
+      const tokensUsed = response?.usage?.totalTokens || response?.usage?.total_tokens || 0;
+      const maxTokens = this.settings.maxTokens || 2000;
+      
+      // Find the chat view and update its token counter
+      const chatView = this.app.workspace.getLeavesOfType(VIEW_TYPE_CHAT)[0]?.view as ChatView;
+      if (chatView && chatView.chatToolbar) {
+        chatView.chatToolbar.updateTokenCounter(tokensUsed, maxTokens);
+      }
+    } catch (error) {
+      console.error('Error updating token counter:', error);
     }
   }
 

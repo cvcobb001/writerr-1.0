@@ -26,7 +26,7 @@ export const ICON_PATHS = {
   // Communication & Actions
   send: ['m22 2-7 20-4-9-9-4z', 'M22 2 11 13'],
   messageCircle: ['M7.9 20A9 9 0 1 0 4 16.1L2 22z'],
-  bot: ['M12 8V4H8', 'M16 8V4h-4', 'M10 18h4', 'M10 12h4', 'M8 4c0-1.1.9-2 2-2h4c1.1 0 2 .9 2 2v4c0 1.1-.9 2-2 2h-4c-1.1 0-2-.9-2-2V4z'],
+  bot: ['path d="M12 6V2H8"', 'path d="m8 18-4 4V8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2Z"', 'path d="M2 12h2"', 'path d="M9 11v2"', 'path d="M15 11v2"', 'path d="M20 12h2"'],
   user: ['M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2', 'circle cx="12" cy="7" r="4"'],
   
   // File & Document Actions  

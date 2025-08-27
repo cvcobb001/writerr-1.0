@@ -10,7 +10,7 @@ export abstract class BaseComponent implements ChatComponent {
     this.plugin = options.plugin;
   }
 
-  abstract render(): void;
+  abstract render(): void | Promise<void>;
 
   destroy(): void {
     this.container.empty();
