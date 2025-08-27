@@ -137,10 +137,52 @@ export class ChatToolbar extends BaseComponent {
       cls: 'writerr-toolbar-button writerr-document-button'
     });
     button.innerHTML = icon;
-    button.onclick = onClick;
+    
+    // Custom click handler that adds current active document to context
+    button.onclick = () => {
+      const activeFile = this.plugin.app.workspace.getActiveFile();
+      if (!activeFile) return;
+
+      // Get the chat view using the same pattern as main plugin
+      const chatLeaf = this.plugin.app.workspace.getLeavesOfType('writerr-chat-view')[0];
+      const chatView = chatLeaf?.view;
+      const contextArea = chatView?.contextArea;
+      
+      if (!contextArea) {
+        console.error('ChatToolbar: Context area not found');
+        return;
+      }
+
+      // Check if document is already in context
+      const documentsInContext = contextArea.getDocuments() || [];
+      const isInContext = documentsInContext.some((doc: any) => doc.path === activeFile.path);
+
+      if (!isInContext) {
+        // Add document to context
+        const documentContext = {
+          name: activeFile.name,
+          path: activeFile.path
+        };
+        console.log('ChatToolbar: Adding document to context:', documentContext);
+        contextArea.addDocument(documentContext);
+        
+        // Update button state to reflect the change
+        this.updateDocumentButtonState();
+      } else {
+        console.log('ChatToolbar: Document already in context:', activeFile.name);
+      }
+    };
     
     // Store reference for updates
     this.documentButton = button;
+    
+    // Listen for active file changes to update button state
+    this.plugin.registerEvent(
+      this.plugin.app.workspace.on('active-leaf-change', () => {
+        // Small delay to ensure file is fully loaded
+        setTimeout(() => this.updateDocumentButtonState(), 100);
+      })
+    );
     
     // Update visual state based on active document
     this.updateDocumentButtonState();
@@ -659,27 +701,37 @@ export class ChatToolbar extends BaseComponent {
     // Get active document
     const activeFile = this.plugin.app.workspace.getActiveFile();
     
-    // Check if active document is available
-    const hasActiveDocument = activeFile !== null;
-    
-    if (hasActiveDocument) {
-      // Active document available - highlight button
-      this.documentButton.style.cssText += `
-        color: var(--interactive-accent) !important;
-        opacity: 1 !important;
-      `;
-      
-      // Update tooltip
-      this.documentButton.setAttribute('aria-label', `Add "${activeFile?.name || 'active document'}" to chat`);
-    } else {
+    if (!activeFile) {
       // No active document - gray out button
       this.documentButton.style.cssText += `
         color: var(--text-faint) !important;
         opacity: 0.5 !important;
       `;
-      
-      // Update tooltip
       this.documentButton.setAttribute('aria-label', 'No active document to add');
+      return;
+    }
+
+    // Check if active document is already in context using same pattern as click handler
+    const chatLeaf = this.plugin.app.workspace.getLeavesOfType('writerr-chat-view')[0];
+    const chatView = chatLeaf?.view;
+    const contextArea = chatView?.contextArea;
+    const documentsInContext = contextArea?.getDocuments() || [];
+    const isInContext = documentsInContext.some((doc: any) => doc.path === activeFile.path);
+    
+    if (isInContext) {
+      // Document already in context - HIGHLIGHTED state
+      this.documentButton.style.cssText += `
+        color: var(--interactive-accent) !important;
+        opacity: 1 !important;
+      `;
+      this.documentButton.setAttribute('aria-label', `"${activeFile.name}" already in context`);
+    } else {
+      // Active document not in context - NORMAL state (ready to add)
+      this.documentButton.style.cssText += `
+        color: var(--text-muted) !important;
+        opacity: 0.8 !important;
+      `;
+      this.documentButton.setAttribute('aria-label', `Add "${activeFile.name}" to context`);
     }
   }
 

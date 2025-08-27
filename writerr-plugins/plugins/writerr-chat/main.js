@@ -1532,9 +1532,6 @@ var ContextArea = class extends BaseComponent {
     this.updateCountBadge();
     this.events.onDocumentAdd(doc);
     this.updateClearButtonState();
-    if (this.isCollapsed) {
-      this.toggleCollapse();
-    }
   }
   createDocumentChip(doc) {
     const docChip = this.documentsContainer.createEl("div", { cls: "context-document-chip" });
@@ -1666,7 +1663,7 @@ var ContextArea = class extends BaseComponent {
       badge.style.cssText = `
         display: inline-block !important;
         background: var(--interactive-accent);
-        color: var(--text-on-accent);
+        color: white !important;
         font-size: 10px;
         padding: 2px 6px;
         border-radius: 8px;
@@ -2303,8 +2300,37 @@ var ChatToolbar = class extends BaseComponent {
       cls: "writerr-toolbar-button writerr-document-button"
     });
     button.innerHTML = icon;
-    button.onclick = onClick;
+    button.onclick = () => {
+      const activeFile = this.plugin.app.workspace.getActiveFile();
+      if (!activeFile)
+        return;
+      const chatLeaf = this.plugin.app.workspace.getLeavesOfType("writerr-chat-view")[0];
+      const chatView = chatLeaf == null ? void 0 : chatLeaf.view;
+      const contextArea = chatView == null ? void 0 : chatView.contextArea;
+      if (!contextArea) {
+        console.error("ChatToolbar: Context area not found");
+        return;
+      }
+      const documentsInContext = contextArea.getDocuments() || [];
+      const isInContext = documentsInContext.some((doc) => doc.path === activeFile.path);
+      if (!isInContext) {
+        const documentContext = {
+          name: activeFile.name,
+          path: activeFile.path
+        };
+        console.log("ChatToolbar: Adding document to context:", documentContext);
+        contextArea.addDocument(documentContext);
+        this.updateDocumentButtonState();
+      } else {
+        console.log("ChatToolbar: Document already in context:", activeFile.name);
+      }
+    };
     this.documentButton = button;
+    this.plugin.registerEvent(
+      this.plugin.app.workspace.on("active-leaf-change", () => {
+        setTimeout(() => this.updateDocumentButtonState(), 100);
+      })
+    );
     this.updateDocumentButtonState();
     this.addTooltip(button, tooltip);
   }
@@ -2705,19 +2731,31 @@ var ChatToolbar = class extends BaseComponent {
     if (!this.documentButton)
       return;
     const activeFile = this.plugin.app.workspace.getActiveFile();
-    const hasActiveDocument = activeFile !== null;
-    if (hasActiveDocument) {
-      this.documentButton.style.cssText += `
-        color: var(--interactive-accent) !important;
-        opacity: 1 !important;
-      `;
-      this.documentButton.setAttribute("aria-label", `Add "${(activeFile == null ? void 0 : activeFile.name) || "active document"}" to chat`);
-    } else {
+    if (!activeFile) {
       this.documentButton.style.cssText += `
         color: var(--text-faint) !important;
         opacity: 0.5 !important;
       `;
       this.documentButton.setAttribute("aria-label", "No active document to add");
+      return;
+    }
+    const chatLeaf = this.plugin.app.workspace.getLeavesOfType("writerr-chat-view")[0];
+    const chatView = chatLeaf == null ? void 0 : chatLeaf.view;
+    const contextArea = chatView == null ? void 0 : chatView.contextArea;
+    const documentsInContext = (contextArea == null ? void 0 : contextArea.getDocuments()) || [];
+    const isInContext = documentsInContext.some((doc) => doc.path === activeFile.path);
+    if (isInContext) {
+      this.documentButton.style.cssText += `
+        color: var(--interactive-accent) !important;
+        opacity: 1 !important;
+      `;
+      this.documentButton.setAttribute("aria-label", `"${activeFile.name}" already in context`);
+    } else {
+      this.documentButton.style.cssText += `
+        color: var(--text-muted) !important;
+        opacity: 0.8 !important;
+      `;
+      this.documentButton.setAttribute("aria-label", `Add "${activeFile.name}" to context`);
     }
   }
   // Public method for external updates

@@ -190,10 +190,7 @@ export class ContextArea extends BaseComponent {
     // Update clear button state
     this.updateClearButtonState();
 
-    // Auto-expand if collapsed and documents are added
-    if (this.isCollapsed) {
-      this.toggleCollapse();
-    }
+    // Removed auto-expand - let user control collapse state manually
   }
 
   private createDocumentChip(doc: DocumentContext): void {
@@ -355,7 +352,7 @@ export class ContextArea extends BaseComponent {
       badge.style.cssText = `
         display: inline-block !important;
         background: var(--interactive-accent);
-        color: var(--text-on-accent);
+        color: white !important;
         font-size: 10px;
         padding: 2px 6px;
         border-radius: 8px;
