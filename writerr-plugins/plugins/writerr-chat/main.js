@@ -97,7 +97,7 @@ __export(main_exports, {
   default: () => WriterrlChatPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian5 = require("obsidian");
+var import_obsidian4 = require("obsidian");
 
 // plugins/writerr-chat/src/settings.ts
 var import_obsidian = require("obsidian");
@@ -207,7 +207,7 @@ var WriterrlChatSettingsTab = class extends import_obsidian.PluginSettingTab {
 };
 
 // plugins/writerr-chat/src/chat-view.ts
-var import_obsidian4 = require("obsidian");
+var import_obsidian3 = require("obsidian");
 
 // plugins/writerr-chat/src/components/BaseComponent.ts
 var BaseComponent = class {
@@ -258,6 +258,115 @@ var BaseComponent = class {
 
 // plugins/writerr-chat/src/components/MessageBubble.ts
 var import_obsidian2 = require("obsidian");
+
+// plugins/writerr-chat/src/utils/icons.ts
+var DEFAULT_CONFIG = {
+  viewBox: "0 0 24 24",
+  width: 16,
+  height: 16,
+  strokeWidth: 2,
+  className: "writerr-icon"
+};
+var ICON_PATHS = {
+  // Communication & Actions
+  send: ["m22 2-7 20-4-9-9-4z", "M22 2 11 13"],
+  messageCircle: ["M7.9 20A9 9 0 1 0 4 16.1L2 22z"],
+  bot: ["M12 8V4H8", "M16 8V4h-4", "M10 18h4", "M10 12h4", "M8 4c0-1.1.9-2 2-2h4c1.1 0 2 .9 2 2v4c0 1.1-.9 2-2 2h-4c-1.1 0-2-.9-2-2V4z"],
+  user: ["M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2", 'circle cx="12" cy="7" r="4"'],
+  // File & Document Actions  
+  filePlus2: ["M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z", "M14 2v6h6", "M12 12v6", "M9 15h6"],
+  copy: ['rect width="14" height="14" x="8" y="8" rx="2" ry="2"', 'path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"'],
+  // Editing & Cleanup
+  paintbrush: ["M18.37 2.63 14 7l-1.59-1.59a2 2 0 0 0-2.82 0L8 7l9 9 1.59-1.59a2 2 0 0 0 0-2.82L17 10l4.37-4.37a2.12 2.12 0 1 0-3-3Z", "M9 8c-2 3-4 3.5-7 4l8 10c2-1 6-5 6-7", "M14.5 17.5L4.5 15"],
+  // Navigation & UI
+  chevronDown: ["m6 9 6 6 6-6"],
+  chevronUp: ["m18 15-6-6-6 6"],
+  chevronLeft: ["m15 18-6-6 6-6"],
+  chevronRight: ["m9 18 6-6-6-6"],
+  x: ["M18 6 6 18", "M6 6l12 12"],
+  // Information & Actions
+  eye: ['path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-3-7-10-7Z"', 'circle cx="12" cy="12" r="3"'],
+  info: ['circle cx="12" cy="12" r="10"', 'path d="M12 16v-4"', 'path d="M12 8h.01"'],
+  settings: ['circle cx="12" cy="12" r="3"', 'path d="M12 1v6m0 6v6m-3-9h6m-6 6h6'],
+  // Loading & Status
+  loader: ['path d="M21 12a9 9 0 11-6.219-8.56"'],
+  // Content Actions
+  refresh: ['path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"', 'path d="M21 3v5h-5"', 'path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"', 'path d="M8 16H3v5"'],
+  trash: ['path d="M3 6h18"', 'path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"', 'path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"'],
+  // Text & Editing
+  type: ['polyline points="4,7 4,4 20,4 20,7"', 'line x1="9" y1="20" x2="15" y2="20"', 'line x1="12" y1="4" x2="12" y2="20"'],
+  edit3: ['path d="M12 20h9"', 'path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"']
+};
+function createIcon(name, config = {}) {
+  const { viewBox, width, height, strokeWidth, className } = { ...DEFAULT_CONFIG, ...config };
+  const paths = ICON_PATHS[name];
+  if (!paths) {
+    console.warn(`Icon "${name}" not found`);
+    return createIcon("info", config);
+  }
+  const pathElements = Array.isArray(paths) ? paths.map((path) => {
+    if (path.startsWith("M") || path.startsWith("m") || path.startsWith("L") || path.startsWith("path d=")) {
+      const d = path.startsWith("path d=") ? path.slice(8, -1) : path;
+      return `<path d="${d}"/>`;
+    } else if (path.includes("cx") || path.includes("cy") || path.includes("r")) {
+      return `<${path}/>`;
+    } else if (path.includes("width") || path.includes("height") || path.includes("x") || path.includes("y")) {
+      return `<${path}/>`;
+    } else if (path.includes("x1") || path.includes("y1") || path.includes("x2") || path.includes("y2")) {
+      return `<${path}/>`;
+    } else if (path.includes("points")) {
+      return `<${path}/>`;
+    } else {
+      return `<path d="${path}"/>`;
+    }
+  }).join("") : `<path d="${paths}"/>`;
+  return `
+    <svg 
+      class="${className}" 
+      width="${width}" 
+      height="${height}" 
+      viewBox="${viewBox}" 
+      fill="none" 
+      stroke="currentColor" 
+      stroke-width="${strokeWidth}"
+    >
+      ${pathElements}
+    </svg>
+  `.trim();
+}
+var ICON_SIZES = {
+  xs: { width: 12, height: 12 },
+  sm: { width: 14, height: 14 },
+  md: { width: 16, height: 16 },
+  lg: { width: 18, height: 18 },
+  xl: { width: 20, height: 20 }
+};
+var ICON_STYLES = {
+  toolbar: { className: "writerr-toolbar-icon", ...ICON_SIZES.md },
+  action: { className: "writerr-action-icon", ...ICON_SIZES.sm },
+  context: { className: "writerr-context-action-icon", ...ICON_SIZES.sm },
+  send: { className: "writerr-send-icon", ...ICON_SIZES.md },
+  message: { className: "writerr-message-icon", ...ICON_SIZES.lg }
+};
+function createStyledIcon(name, style) {
+  return createIcon(name, ICON_STYLES[style]);
+}
+var Icons = {
+  send: (config) => createIcon("send", config),
+  bot: (config) => createIcon("bot", config),
+  user: (config) => createIcon("user", config),
+  copy: (config) => createIcon("copy", config),
+  paintbrush: (config) => createIcon("paintbrush", config),
+  filePlus2: (config) => createIcon("filePlus2", config),
+  chevronDown: (config) => createIcon("chevronDown", config),
+  eye: (config) => createIcon("eye", config),
+  loader: (config) => createIcon("loader", config),
+  trash: (config) => createIcon("trash", config),
+  refresh: (config) => createIcon("refresh", config),
+  edit3: (config) => createIcon("edit3", config)
+};
+
+// plugins/writerr-chat/src/components/MessageBubble.ts
 var MessageBubble = class extends BaseComponent {
   constructor(options) {
     super(options);
@@ -290,23 +399,17 @@ var MessageBubble = class extends BaseComponent {
     const isUser = this.message.role === "user";
     const avatar = this.messageEl.createEl("div", { cls: "writerr-message-icon" });
     if (isUser) {
-      avatar.innerHTML = `
-        <svg class="writerr-message-avatar" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-          <circle cx="12" cy="7" r="4"/>
-        </svg>
-      `;
+      avatar.innerHTML = Icons.user({
+        className: "writerr-message-avatar",
+        width: 20,
+        height: 20
+      });
     } else {
-      avatar.innerHTML = `
-        <svg class="writerr-message-avatar" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M12 8V4H8"/>
-          <rect width="16" height="12" x="4" y="8" rx="2"/>
-          <path d="M2 14h2"/>
-          <path d="M20 14h2"/>
-          <path d="M15 13v2"/>
-          <path d="M9 13v2"/>
-        </svg>
-      `;
+      avatar.innerHTML = Icons.bot({
+        className: "writerr-message-avatar",
+        width: 20,
+        height: 20
+      });
     }
   }
   createContent() {
@@ -365,41 +468,37 @@ var MessageBubble = class extends BaseComponent {
     const contentWrapper = this.messageEl.querySelector(".message-content-wrapper");
     this.actionsEl = contentWrapper.createEl("div", { cls: "writerr-message-actions" });
     if (isUser) {
-      this.createActionButton("copy", "Copy message", `
-        <svg class="writerr-action-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-        </svg>
-      `, () => this.actionHandler.onCopy(this.message));
-      this.createActionButton("info", "Message info", `
-        <svg class="writerr-action-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="12"/>
-          <path d="M12 16v-4"/>
-          <path d="M12 8h.01"/>
-        </svg>
-      `, () => this.actionHandler.onInfo(this.message));
+      this.createActionButton(
+        "copy",
+        "Copy message",
+        Icons.copy({ className: "writerr-action-icon", ...ICON_STYLES.action }),
+        () => this.actionHandler.onCopy(this.message)
+      );
+      this.createActionButton(
+        "info",
+        "Message info",
+        Icons.info({ className: "writerr-action-icon", ...ICON_STYLES.action }),
+        () => this.actionHandler.onInfo(this.message)
+      );
     } else {
-      this.createActionButton("retry", "Retry this response", `
-        <svg class="writerr-action-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 3"/>
-          <path d="M21 3v5h-5"/>
-          <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 21"/>
-          <path d="M3 21v-5h5"/>
-        </svg>
-      `, () => this.actionHandler.onRetry(this.message));
-      this.createActionButton("copy", "Copy message", `
-        <svg class="writerr-action-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-        </svg>
-      `, () => this.actionHandler.onCopy(this.message));
-      this.createActionButton("info", "Message info", `
-        <svg class="writerr-action-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="12"/>
-          <path d="M12 16v-4"/>
-          <path d="M12 8h.01"/>
-        </svg>
-      `, () => this.actionHandler.onInfo(this.message));
+      this.createActionButton(
+        "retry",
+        "Retry this response",
+        Icons.refresh({ className: "writerr-action-icon", ...ICON_STYLES.action }),
+        () => this.actionHandler.onRetry(this.message)
+      );
+      this.createActionButton(
+        "copy",
+        "Copy message",
+        Icons.copy({ className: "writerr-action-icon", ...ICON_STYLES.action }),
+        () => this.actionHandler.onCopy(this.message)
+      );
+      this.createActionButton(
+        "info",
+        "Message info",
+        Icons.info({ className: "writerr-action-icon", ...ICON_STYLES.action }),
+        () => this.actionHandler.onInfo(this.message)
+      );
     }
   }
   createActionButton(type, tooltip, icon, onClick) {
@@ -686,11 +785,7 @@ var ContextArea = class extends BaseComponent {
     const leftSection = this.contextHeader.createEl("div");
     leftSection.style.cssText = "display: flex; align-items: center; gap: 8px; flex: 1;";
     const collapseIcon = leftSection.createEl("div", { cls: "context-collapse-icon" });
-    collapseIcon.innerHTML = `
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <polyline points="6 9 12 15 18 9"/>
-      </svg>
-    `;
+    collapseIcon.innerHTML = Icons.chevronDown({ width: 14, height: 14 });
     collapseIcon.style.cssText = `
       transition: transform 0.3s ease;
       color: var(--text-muted);
@@ -709,12 +804,7 @@ var ContextArea = class extends BaseComponent {
     const rightSection = this.contextHeader.createEl("div");
     rightSection.style.cssText = "display: flex; align-items: center; flex-shrink: 0;";
     const addDocButton = rightSection.createEl("button", { cls: "context-add-button" });
-    addDocButton.innerHTML = `
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M12 5v14"/>
-        <path d="M5 12h14"/>
-      </svg>
-    `;
+    addDocButton.innerHTML = Icons.filePlus2({ width: 18, height: 18 });
     addDocButton.title = "Attach document";
     addDocButton.setAttribute("data-tooltip", "Attach document");
     addDocButton.onclick = (e) => {
@@ -758,13 +848,10 @@ var ContextArea = class extends BaseComponent {
       e.stopPropagation();
       this.clearAllDocuments();
     };
-    this.clearButton.innerHTML = `
-      <svg class="writerr-context-action-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M18.37 2.63 14 7l-1.59-1.59a2 2 0 0 0-2.82 0L8 7l9 9 1.59-1.59a2 2 0 0 0 0-2.82L17 10l4.37-4.37a2.12 2.12 0 1 0-3-3Z"/>
-        <path d="M9 8c-2 3-4 3.5-7 4l8 10c2-1 6-5 6-7"/>
-        <path d="M14.5 17.5 4.5 15"/>
-      </svg>
-    `;
+    this.clearButton.innerHTML = Icons.paintbrush({
+      className: "writerr-context-action-icon",
+      ...ICON_STYLES.context
+    });
     this.updateClearButtonState();
   }
   styleActionButton(button) {
@@ -829,12 +916,7 @@ var ContextArea = class extends BaseComponent {
     `;
     document.head.appendChild(style);
     const docIcon = docChip.createEl("span");
-    docIcon.innerHTML = `
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-        <path d="M14 2v6h6"/>
-      </svg>
-    `;
+    docIcon.innerHTML = Icons.filePlus2({ width: 12, height: 12 });
     docIcon.style.cssText = "color: var(--text-muted); flex-shrink: 0;";
     const docName = docChip.createEl("span", { text: doc.name });
     docName.style.cssText = `
@@ -844,12 +926,7 @@ var ContextArea = class extends BaseComponent {
       flex: 1;
     `;
     const removeBtn = docChip.createEl("button");
-    removeBtn.innerHTML = `
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M18 6L6 18"/>
-        <path d="M6 6l12 12"/>
-      </svg>
-    `;
+    removeBtn.innerHTML = Icons.x({ width: 12, height: 12 });
     removeBtn.style.cssText = `
       background: none;
       border: none;
@@ -1194,12 +1271,7 @@ var ChatInput = class extends BaseComponent {
         "aria-label": "Send message"
       }
     });
-    this.sendButton.innerHTML = `
-      <svg class="writerr-send-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="m22 2-7 20-4-9-9-4z"/>
-        <path d="M22 2 11 13"/>
-      </svg>
-    `;
+    this.sendButton.innerHTML = Icons.send({ className: "writerr-send-icon", width: 16, height: 16 });
     this.setupSendButtonEvents();
   }
   setupAutoResize() {
@@ -1292,11 +1364,11 @@ var ChatInput = class extends BaseComponent {
   setProcessingState(processing) {
     this.isProcessing = processing;
     if (processing) {
-      this.sendButton.innerHTML = `
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21 12a9 9 0 11-6.219-8.56"/>
-        </svg>
-      `;
+      this.sendButton.innerHTML = Icons.loader({
+        className: "writerr-send-icon",
+        width: 18,
+        height: 18
+      });
       this.sendButton.style.color = "var(--text-muted)";
       this.sendButton.style.cursor = "default";
       this.sendButton.style.opacity = "0.8";
@@ -1313,12 +1385,11 @@ var ChatInput = class extends BaseComponent {
         document.head.appendChild(style);
       }
     } else {
-      this.sendButton.innerHTML = `
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="m22 2-7 20-4-9-9-4z"/>
-          <path d="M22 2 11 13"/>
-        </svg>
-      `;
+      this.sendButton.innerHTML = Icons.send({
+        className: "writerr-send-icon",
+        width: 18,
+        height: 18
+      });
       this.sendButton.style.animation = "none";
       this.sendButton.style.cursor = "pointer";
     }
@@ -1347,7 +1418,6 @@ var ChatInput = class extends BaseComponent {
 };
 
 // plugins/writerr-chat/src/components/ChatToolbar.ts
-var import_obsidian3 = require("obsidian");
 var ChatToolbar = class extends BaseComponent {
   constructor(options) {
     super(options);
@@ -1374,27 +1444,24 @@ var ChatToolbar = class extends BaseComponent {
     const leftContainer = this.createElement("div", {
       cls: "writerr-toolbar-left"
     });
-    this.createActionButton(leftContainer, "Add document to chat", `
-      <svg class="writerr-toolbar-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-        <path d="M14 2v6h6"/>
-        <path d="M12 11v6"/>
-        <path d="M9 14h6"/>
-      </svg>
-    `, () => this.events.onAddDocument());
-    this.createActionButton(leftContainer, "Copy entire chat", `
-      <svg class="writerr-toolbar-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-      </svg>
-    `, () => this.events.onCopyChat());
-    this.createActionButton(leftContainer, "Clear chat", `
-      <svg class="writerr-toolbar-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M18.37 2.63 14 7l-1.59-1.59a2 2 0 0 0-2.82 0L8 7l9 9 1.59-1.59a2 2 0 0 0 0-2.82L17 10l4.37-4.37a2.12 2.12 0 1 0-3-3Z"/>
-        <path d="M9 8c-2 3-4 3.5-7 4l8 10c2-1 6-5 6-7"/>
-        <path d="M14.5 17.5 4.5 15"/>
-      </svg>
-    `, () => this.events.onClearChat());
+    this.createActionButton(
+      leftContainer,
+      "Add document to chat",
+      createStyledIcon("filePlus2", "toolbar"),
+      () => this.events.onAddDocument()
+    );
+    this.createActionButton(
+      leftContainer,
+      "Copy entire chat",
+      createStyledIcon("copy", "toolbar"),
+      () => this.events.onCopyChat()
+    );
+    this.createActionButton(
+      leftContainer,
+      "Clear chat",
+      createStyledIcon("paintbrush", "toolbar"),
+      () => this.events.onClearChat()
+    );
   }
   createRightSection() {
     const rightContainer = this.createElement("div", {
@@ -1417,42 +1484,6 @@ var ChatToolbar = class extends BaseComponent {
     });
     button.innerHTML = icon;
     button.onclick = onClick;
-  }
-  createActionButtonWithIcon(parent, tooltip, iconName, onClick) {
-    const button = parent.createEl("button");
-    const iconContainer = button.createEl("div");
-    const iconOptions = [iconName, "brush-cleaning", "broom", "brush"];
-    let iconSet = false;
-    for (const icon of iconOptions) {
-      try {
-        (0, import_obsidian3.setIcon)(iconContainer, icon);
-        iconSet = true;
-        break;
-      } catch (e) {
-        continue;
-      }
-    }
-    if (!iconSet) {
-      iconContainer.textContent = "\u{1F9F9}";
-    }
-    button.title = tooltip;
-    button.setAttribute("data-tooltip", tooltip);
-    button.onclick = onClick;
-    button.style.cssText = `
-      background: transparent !important;
-      border: none !important;
-      box-shadow: none !important;
-      cursor: pointer !important;
-      color: var(--text-muted) !important;
-      padding: 4px !important;
-      display: flex !important;
-      align-items: center !important;
-      justify-content: center !important;
-      transition: color 0.2s ease !important;
-    `;
-    this.addHoverEffect(button, {
-      "color": "var(--text-normal)"
-    });
   }
   createModelSelect(parent) {
     const modelContainer = parent.createDiv();
@@ -1481,11 +1512,7 @@ var ChatToolbar = class extends BaseComponent {
       max-width: 120px;
     `;
     const caret = modelContainer.createEl("div");
-    caret.innerHTML = `
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <polyline points="6,9 12,15 18,9"></polyline>
-      </svg>
-    `;
+    caret.innerHTML = Icons.chevronDown({ width: 12, height: 12 });
     caret.style.cssText = `
       pointer-events: none;
       color: var(--text-muted);
@@ -1524,11 +1551,7 @@ var ChatToolbar = class extends BaseComponent {
       max-width: 100px;
     `;
     const caret = promptContainer.createEl("div");
-    caret.innerHTML = `
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <polyline points="6,9 12,15 18,9"></polyline>
-      </svg>
-    `;
+    caret.innerHTML = Icons.chevronDown({ width: 12, height: 12 });
     caret.style.cssText = `
       pointer-events: none;
       color: var(--text-muted);
@@ -2436,7 +2459,7 @@ This will permanently delete ${messageCount} message${messageCount !== 1 ? "s" :
 
 // plugins/writerr-chat/src/chat-view.ts
 var VIEW_TYPE_CHAT = "writerr-chat-view";
-var ChatView = class extends import_obsidian4.ItemView {
+var ChatView = class extends import_obsidian3.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.plugin = plugin;
@@ -2556,7 +2579,7 @@ var ChatView = class extends import_obsidian4.ItemView {
       this.refresh();
     } catch (error) {
       console.error("Error sending message:", error);
-      new import_obsidian4.Notice(`Error: ${error.message}`);
+      new import_obsidian3.Notice(`Error: ${error.message}`);
     } finally {
       this.chatInput.setProcessingState(false);
       this.chatHeader.updateStatusIndicator();
@@ -2564,10 +2587,10 @@ var ChatView = class extends import_obsidian4.ItemView {
   }
   copyMessage(message) {
     navigator.clipboard.writeText(message.content).then(() => {
-      new import_obsidian4.Notice("Message copied to clipboard");
+      new import_obsidian3.Notice("Message copied to clipboard");
     }).catch((err) => {
       console.error("Failed to copy message:", err);
-      new import_obsidian4.Notice("Failed to copy message");
+      new import_obsidian3.Notice("Failed to copy message");
     });
   }
   async retryMessage(message) {
@@ -2603,7 +2626,7 @@ var ChatView = class extends import_obsidian4.ItemView {
           this.refresh();
         } catch (error) {
           console.error("Error retrying message:", error);
-          new import_obsidian4.Notice(`Error: ${error.message}`);
+          new import_obsidian3.Notice(`Error: ${error.message}`);
           const { generateId: generateId2 } = await Promise.resolve().then(() => (init_utils(), utils_exports));
           const errorMessage = {
             id: generateId2(),
@@ -2635,7 +2658,7 @@ var ChatView = class extends import_obsidian4.ItemView {
       `Length: ${info.length} characters`,
       `Estimated tokens: ${info.tokens}`
     ].join("\n");
-    new import_obsidian4.Notice(infoText, 5e3);
+    new import_obsidian3.Notice(infoText, 5e3);
   }
   handleModeChange(mode) {
     this.plugin.settings.defaultMode = mode;
@@ -2655,7 +2678,7 @@ var ChatView = class extends import_obsidian4.ItemView {
       }
     } catch (error) {
       console.error("Error opening document:", error);
-      new import_obsidian4.Notice(`Failed to open document: ${doc.name}`);
+      new import_obsidian3.Notice(`Failed to open document: ${doc.name}`);
     }
   }
   showSessionManager() {
@@ -2673,7 +2696,7 @@ var ChatView = class extends import_obsidian4.ItemView {
     this.sessionManager.show();
   }
   showSettings() {
-    new import_obsidian4.Notice("Settings panel coming soon!");
+    new import_obsidian3.Notice("Settings panel coming soon!");
   }
   selectSession(sessionId) {
     this.plugin.setCurrentSession(sessionId);
@@ -2734,25 +2757,25 @@ var ChatView = class extends import_obsidian4.ItemView {
     const messages = ((_a = this.plugin.currentSession) == null ? void 0 : _a.messages) || [];
     const chatText = messages.map((msg) => `${msg.role === "user" ? "You" : "Assistant"}: ${msg.content}`).join("\n\n");
     navigator.clipboard.writeText(chatText).then(() => {
-      new import_obsidian4.Notice("Chat copied to clipboard");
+      new import_obsidian3.Notice("Chat copied to clipboard");
     }).catch(() => {
-      new import_obsidian4.Notice("Failed to copy chat");
+      new import_obsidian3.Notice("Failed to copy chat");
     });
   }
   clearChat() {
     if (this.plugin.currentSession) {
       this.plugin.currentSession.messages = [];
       this.refresh();
-      new import_obsidian4.Notice("Chat cleared");
+      new import_obsidian3.Notice("Chat cleared");
     }
   }
   handleModelChange(model) {
     console.log("Model changed to:", model);
-    new import_obsidian4.Notice(`Model changed to ${model}`);
+    new import_obsidian3.Notice(`Model changed to ${model}`);
   }
   handlePromptChange(prompt) {
     console.log("Prompt template selected:", prompt);
-    new import_obsidian4.Notice(`Prompt template: ${prompt}`);
+    new import_obsidian3.Notice(`Prompt template: ${prompt}`);
   }
   async onClose() {
     var _a, _b, _c, _d, _e;
@@ -2789,7 +2812,7 @@ var DEFAULT_SETTINGS = {
 var BUILD_TIMESTAMP = Date.now();
 var BUILD_VERSION = "v2.0.1-fix-ai-providers";
 console.log(`\u{1F527} Writerr Chat Build: ${BUILD_VERSION} (${new Date(BUILD_TIMESTAMP).toISOString()})`);
-var WriterrlChatPlugin = class extends import_obsidian5.Plugin {
+var WriterrlChatPlugin = class extends import_obsidian4.Plugin {
   constructor() {
     super(...arguments);
     this.currentSession = null;
@@ -3093,7 +3116,7 @@ var WriterrlChatPlugin = class extends import_obsidian5.Plugin {
         if (selection) {
           this.chatWithSelection(selection);
         } else {
-          new import_obsidian5.Notice("No text selected");
+          new import_obsidian4.Notice("No text selected");
         }
       }
     });
@@ -3213,7 +3236,7 @@ What would you like to know about this text?`;
         });
       }
     } catch (error) {
-      new import_obsidian5.Notice(`Error sending message: ${error.message}`);
+      new import_obsidian4.Notice(`Error sending message: ${error.message}`);
       console.error("Chat error:", error);
       const errorMessage = {
         id: generateId(),
@@ -3537,7 +3560,7 @@ User request: ${prompt}`;
     }
   }
 };
-var QuickChatModal = class extends import_obsidian5.Modal {
+var QuickChatModal = class extends import_obsidian4.Modal {
   constructor(app, onSubmit) {
     super(app);
     this.onSubmit = onSubmit;

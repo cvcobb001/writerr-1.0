@@ -2,6 +2,7 @@ import { MarkdownRenderer, Component } from 'obsidian';
 import { ChatMessage } from '@shared/types';
 import { BaseComponent } from './BaseComponent';
 import { ComponentOptions, MessageActionHandler } from './types';
+import { Icons, ICON_STYLES } from '../utils/icons';
 
 interface MessageBubbleOptions extends ComponentOptions {
   message: ChatMessage;
@@ -50,25 +51,19 @@ export class MessageBubble extends BaseComponent {
     const avatar = this.messageEl.createEl('div', { cls: 'writerr-message-icon' });
 
     if (isUser) {
-      // User icon: Lucide User icon
-      avatar.innerHTML = `
-        <svg class="writerr-message-avatar" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-          <circle cx="12" cy="7" r="4"/>
-        </svg>
-      `;
+      // User icon using centralized icon system
+      avatar.innerHTML = Icons.user({ 
+        className: 'writerr-message-avatar', 
+        width: 20, 
+        height: 20 
+      });
     } else {
-      // AI icon: Lucide Bot icon
-      avatar.innerHTML = `
-        <svg class="writerr-message-avatar" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M12 8V4H8"/>
-          <rect width="16" height="12" x="4" y="8" rx="2"/>
-          <path d="M2 14h2"/>
-          <path d="M20 14h2"/>
-          <path d="M15 13v2"/>
-          <path d="M9 13v2"/>
-        </svg>
-      `;
+      // AI icon using centralized icon system
+      avatar.innerHTML = Icons.bot({ 
+        className: 'writerr-message-avatar', 
+        width: 20, 
+        height: 20 
+      });
     }
   }
 
@@ -141,45 +136,31 @@ export class MessageBubble extends BaseComponent {
 
     if (isUser) {
       // User message actions: ONLY copy and info (NO retry)
-      this.createActionButton('copy', 'Copy message', `
-        <svg class="writerr-action-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-        </svg>
-      `, () => this.actionHandler.onCopy(this.message));
+      this.createActionButton('copy', 'Copy message', 
+        Icons.copy({ className: 'writerr-action-icon', ...ICON_STYLES.action }), 
+        () => this.actionHandler.onCopy(this.message)
+      );
 
-      this.createActionButton('info', 'Message info', `
-        <svg class="writerr-action-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="12"/>
-          <path d="M12 16v-4"/>
-          <path d="M12 8h.01"/>
-        </svg>
-      `, () => this.actionHandler.onInfo(this.message));
+      this.createActionButton('info', 'Message info', 
+        Icons.info({ className: 'writerr-action-icon', ...ICON_STYLES.action }), 
+        () => this.actionHandler.onInfo(this.message)
+      );
     } else {
       // AI message actions: retry, copy, and info
-      this.createActionButton('retry', 'Retry this response', `
-        <svg class="writerr-action-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 3"/>
-          <path d="M21 3v5h-5"/>
-          <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 21"/>
-          <path d="M3 21v-5h5"/>
-        </svg>
-      `, () => this.actionHandler.onRetry(this.message));
+      this.createActionButton('retry', 'Retry this response', 
+        Icons.refresh({ className: 'writerr-action-icon', ...ICON_STYLES.action }), 
+        () => this.actionHandler.onRetry(this.message)
+      );
 
-      this.createActionButton('copy', 'Copy message', `
-        <svg class="writerr-action-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-        </svg>
-      `, () => this.actionHandler.onCopy(this.message));
+      this.createActionButton('copy', 'Copy message', 
+        Icons.copy({ className: 'writerr-action-icon', ...ICON_STYLES.action }), 
+        () => this.actionHandler.onCopy(this.message)
+      );
 
-      this.createActionButton('info', 'Message info', `
-        <svg class="writerr-action-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="12"/>
-          <path d="M12 16v-4"/>
-          <path d="M12 8h.01"/>
-        </svg>
-      `, () => this.actionHandler.onInfo(this.message));
+      this.createActionButton('info', 'Message info', 
+        Icons.info({ className: 'writerr-action-icon', ...ICON_STYLES.action }), 
+        () => this.actionHandler.onInfo(this.message)
+      );
     }
   }
 

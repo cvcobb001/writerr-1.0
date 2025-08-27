@@ -1,5 +1,5 @@
-import { setIcon } from 'obsidian';
 import { BaseComponent, ComponentOptions } from './BaseComponent';
+import { Icons, createStyledIcon } from '../utils/icons';
 
 interface ChatToolbarOptions extends ComponentOptions {
   events: ChatToolbarEvents;
@@ -50,32 +50,23 @@ export class ChatToolbar extends BaseComponent {
       cls: 'writerr-toolbar-left'
     });
 
-    // Add document button - Lucide FilePlus2
-    this.createActionButton(leftContainer, 'Add document to chat', `
-      <svg class="writerr-toolbar-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-        <path d="M14 2v6h6"/>
-        <path d="M12 11v6"/>
-        <path d="M9 14h6"/>
-      </svg>
-    `, () => this.events.onAddDocument());
+    // Add document button - using centralized icon system
+    this.createActionButton(leftContainer, 'Add document to chat', 
+      createStyledIcon('filePlus2', 'toolbar'), 
+      () => this.events.onAddDocument()
+    );
 
-    // Copy chat button - Lucide Copy
-    this.createActionButton(leftContainer, 'Copy entire chat', `
-      <svg class="writerr-toolbar-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-      </svg>
-    `, () => this.events.onCopyChat());
+    // Copy chat button - using centralized icon system
+    this.createActionButton(leftContainer, 'Copy entire chat', 
+      createStyledIcon('copy', 'toolbar'), 
+      () => this.events.onCopyChat()
+    );
 
-    // Clear chat button - Lucide Paintbrush
-    this.createActionButton(leftContainer, 'Clear chat', `
-      <svg class="writerr-toolbar-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M18.37 2.63 14 7l-1.59-1.59a2 2 0 0 0-2.82 0L8 7l9 9 1.59-1.59a2 2 0 0 0 0-2.82L17 10l4.37-4.37a2.12 2.12 0 1 0-3-3Z"/>
-        <path d="M9 8c-2 3-4 3.5-7 4l8 10c2-1 6-5 6-7"/>
-        <path d="M14.5 17.5 4.5 15"/>
-      </svg>
-    `, () => this.events.onClearChat());
+    // Clear chat button - using centralized icon system
+    this.createActionButton(leftContainer, 'Clear chat', 
+      createStyledIcon('paintbrush', 'toolbar'), 
+      () => this.events.onClearChat()
+    );
   }
 
   private createRightSection(): void {
@@ -109,50 +100,6 @@ export class ChatToolbar extends BaseComponent {
     button.onclick = onClick;
   }
 
-  private createActionButtonWithIcon(parent: HTMLElement, tooltip: string, iconName: string, onClick: () => void): void {
-    const button = parent.createEl('button');
-    
-    // Use Obsidian's setIcon with proper fallback chain
-    const iconContainer = button.createEl('div');
-    const iconOptions = [iconName, 'brush-cleaning', 'broom', 'brush'];
-    
-    let iconSet = false;
-    for (const icon of iconOptions) {
-      try {
-        setIcon(iconContainer, icon);
-        iconSet = true;
-        break;
-      } catch {
-        continue;
-      }
-    }
-    
-    if (!iconSet) {
-      // Final fallback - broom emoji
-      iconContainer.textContent = '🧹';
-    }
-    
-    button.title = tooltip;
-    button.setAttribute('data-tooltip', tooltip);
-    button.onclick = onClick;
-
-    button.style.cssText = `
-      background: transparent !important;
-      border: none !important;
-      box-shadow: none !important;
-      cursor: pointer !important;
-      color: var(--text-muted) !important;
-      padding: 4px !important;
-      display: flex !important;
-      align-items: center !important;
-      justify-content: center !important;
-      transition: color 0.2s ease !important;
-    `;
-
-    this.addHoverEffect(button, {
-      'color': 'var(--text-normal)'
-    });
-  }
 
   private createModelSelect(parent: HTMLElement): void {
     const modelContainer = parent.createDiv();
@@ -185,13 +132,9 @@ export class ChatToolbar extends BaseComponent {
       max-width: 120px;
     `;
 
-    // Add caret
+    // Add caret using centralized icon system
     const caret = modelContainer.createEl('div');
-    caret.innerHTML = `
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <polyline points="6,9 12,15 18,9"></polyline>
-      </svg>
-    `;
+    caret.innerHTML = Icons.chevronDown({ width: 12, height: 12 });
     caret.style.cssText = `
       pointer-events: none;
       color: var(--text-muted);
@@ -234,13 +177,9 @@ export class ChatToolbar extends BaseComponent {
       max-width: 100px;
     `;
 
-    // Add caret
+    // Add caret using centralized icon system  
     const caret = promptContainer.createEl('div');
-    caret.innerHTML = `
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <polyline points="6,9 12,15 18,9"></polyline>
-      </svg>
-    `;
+    caret.innerHTML = Icons.chevronDown({ width: 12, height: 12 });
     caret.style.cssText = `
       pointer-events: none;
       color: var(--text-muted);

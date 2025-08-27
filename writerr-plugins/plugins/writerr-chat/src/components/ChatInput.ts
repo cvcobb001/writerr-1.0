@@ -1,5 +1,6 @@
 import { BaseComponent } from './BaseComponent';
 import { ComponentOptions, ChatInputEvents } from './types';
+import { Icons } from '../utils/icons';
 
 interface ChatInputOptions extends ComponentOptions {
   events: ChatInputEvents;
@@ -76,13 +77,8 @@ export class ChatInput extends BaseComponent {
       }
     });
     
-    // Use proper Lucide Send icon - simple and clean
-    this.sendButton.innerHTML = `
-      <svg class="writerr-send-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="m22 2-7 20-4-9-9-4z"/>
-        <path d="M22 2 11 13"/>
-      </svg>
-    `;
+    // Use centralized icon system
+    this.sendButton.innerHTML = Icons.send({ className: 'writerr-send-icon', width: 16, height: 16 });
     
     this.setupSendButtonEvents();
   }
@@ -201,11 +197,11 @@ export class ChatInput extends BaseComponent {
     this.isProcessing = processing;
     
     if (processing) {
-      this.sendButton.innerHTML = `
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21 12a9 9 0 11-6.219-8.56"/>
-        </svg>
-      `;
+      this.sendButton.innerHTML = Icons.loader({ 
+        className: 'writerr-send-icon', 
+        width: 18, 
+        height: 18 
+      });
       this.sendButton.style.color = 'var(--text-muted)';
       this.sendButton.style.cursor = 'default';
       this.sendButton.style.opacity = '0.8';
@@ -225,12 +221,11 @@ export class ChatInput extends BaseComponent {
         document.head.appendChild(style);
       }
     } else {
-      this.sendButton.innerHTML = `
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="m22 2-7 20-4-9-9-4z"/>
-          <path d="M22 2 11 13"/>
-        </svg>
-      `;
+      this.sendButton.innerHTML = Icons.send({ 
+        className: 'writerr-send-icon', 
+        width: 18, 
+        height: 18 
+      });
       this.sendButton.style.animation = 'none';
       this.sendButton.style.cursor = 'pointer';
     }

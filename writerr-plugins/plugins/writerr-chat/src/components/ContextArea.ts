@@ -1,6 +1,6 @@
-import { setIcon } from 'obsidian';
 import { BaseComponent } from './BaseComponent';
 import { ComponentOptions, ContextAreaEvents, DocumentContext } from './types';
+import { Icons, ICON_STYLES } from '../utils/icons';
 
 interface ContextAreaOptions extends ComponentOptions {
   events: ContextAreaEvents;
@@ -63,13 +63,9 @@ export class ContextArea extends BaseComponent {
     const leftSection = this.contextHeader.createEl('div');
     leftSection.style.cssText = 'display: flex; align-items: center; gap: 8px; flex: 1;';
 
-    // Collapse/expand icon
+    // Collapse/expand icon using centralized system
     const collapseIcon = leftSection.createEl('div', { cls: 'context-collapse-icon' });
-    collapseIcon.innerHTML = `
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <polyline points="6 9 12 15 18 9"/>
-      </svg>
-    `;
+    collapseIcon.innerHTML = Icons.chevronDown({ width: 14, height: 14 });
     collapseIcon.style.cssText = `
       transition: transform 0.3s ease;
       color: var(--text-muted);
@@ -93,14 +89,9 @@ export class ContextArea extends BaseComponent {
     const rightSection = this.contextHeader.createEl('div');
     rightSection.style.cssText = 'display: flex; align-items: center; flex-shrink: 0;';
 
-    // Add document button - FAR RIGHT
+    // Add document button using plus icon from centralized system
     const addDocButton = rightSection.createEl('button', { cls: 'context-add-button' });
-    addDocButton.innerHTML = `
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M12 5v14"/>
-        <path d="M5 12h14"/>
-      </svg>
-    `;
+    addDocButton.innerHTML = Icons.filePlus2({ width: 18, height: 18 });
     addDocButton.title = 'Attach document';
     addDocButton.setAttribute('data-tooltip', 'Attach document');
     addDocButton.onclick = (e) => {
@@ -152,14 +143,11 @@ export class ContextArea extends BaseComponent {
       this.clearAllDocuments();
     };
 
-    // Lucide Paintbrush icon - same as toolbar
-    this.clearButton.innerHTML = `
-      <svg class="writerr-context-action-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M18.37 2.63 14 7l-1.59-1.59a2 2 0 0 0-2.82 0L8 7l9 9 1.59-1.59a2 2 0 0 0 0-2.82L17 10l4.37-4.37a2.12 2.12 0 1 0-3-3Z"/>
-        <path d="M9 8c-2 3-4 3.5-7 4l8 10c2-1 6-5 6-7"/>
-        <path d="M14.5 17.5 4.5 15"/>
-      </svg>
-    `;
+    // Paintbrush icon using centralized system - same as toolbar
+    this.clearButton.innerHTML = Icons.paintbrush({ 
+      className: 'writerr-context-action-icon', 
+      ...ICON_STYLES.context 
+    });
     
     // Set initial state
     this.updateClearButtonState();
@@ -238,12 +226,7 @@ export class ContextArea extends BaseComponent {
     document.head.appendChild(style);
 
     const docIcon = docChip.createEl('span');
-    docIcon.innerHTML = `
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-        <path d="M14 2v6h6"/>
-      </svg>
-    `;
+    docIcon.innerHTML = Icons.filePlus2({ width: 12, height: 12 });
     docIcon.style.cssText = 'color: var(--text-muted); flex-shrink: 0;';
 
     const docName = docChip.createEl('span', { text: doc.name });
@@ -255,12 +238,7 @@ export class ContextArea extends BaseComponent {
     `;
 
     const removeBtn = docChip.createEl('button');
-    removeBtn.innerHTML = `
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M18 6L6 18"/>
-        <path d="M6 6l12 12"/>
-      </svg>
-    `;
+    removeBtn.innerHTML = Icons.x({ width: 12, height: 12 });
     removeBtn.style.cssText = `
       background: none;
       border: none;
