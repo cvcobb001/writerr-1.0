@@ -779,7 +779,209 @@ await this.buildDirectoryMenu(contextMenu, vault.adapter);
 
 **Status**: Phase 1 foundation complete. Platform ready for Phase 2 advanced features.
 
-### 1.4 Writerr Platform Design System
+---
+
+## Phase 2: User Experience Polish & Advanced Features (Week 5)
+**Goal**: Refine the user experience with polished interactions and enhanced functionality
+
+### 2.1 Chat Interface Polish & Refinements
+
+#### Task 2.1.1: Icon System Standardization ⏳ PENDING
+**Priority**: High  
+**Estimated Time**: 15 minutes  
+**Dependencies**: Phase 1 completion
+
+**Specifications**:
+- ✅ Replace chat ribbon/tab icon with proper Lucide messageSquare icon
+- ✅ Increase icon sizes throughout panel (avatars, action buttons) by one size level
+- ✅ Replace info action icon with proper Lucide info icon (not custom SVG)
+- ✅ Update centralized icon system in `utils/icons.ts` with correct sizes
+
+**Acceptance Criteria**:
+- [ ] Chat ribbon icon uses Lucide messageSquare instead of custom SVG
+- [ ] Avatar icons in message area larger and more visible
+- [ ] Info icons use proper Lucide info paths
+- [ ] All panel icons consistent size and properly scaled
+- [ ] Icon system centralized and maintainable
+
+**Technical Requirements**:
+```typescript
+// Icon size updates needed
+export const ICON_SIZES = {
+  xs: { width: 14, height: 14 },    // Was 12x12
+  sm: { width: 16, height: 16 },    // Was 14x14  
+  md: { width: 20, height: 20 },    // Was 16x16 - for avatars
+  lg: { width: 24, height: 24 },    // Was 18x18
+  xl: { width: 28, height: 28 }     // Was 20x20
+};
+
+// Ribbon icon update
+getIcon(): string {
+  return 'messageSquare'; // Lucide icon name, not custom SVG
+}
+```
+
+#### Task 2.1.2: Enhanced Info Tooltips System ⏳ PENDING
+**Priority**: High  
+**Estimated Time**: 10 minutes  
+**Dependencies**: Task 2.1.1
+
+**Specifications**:
+- ✅ Convert info icon from clickable to hover-only tooltip system
+- ✅ Show timestamp for user messages on hover (no click required)
+- ✅ Show timestamp + model name for AI messages on hover
+- ✅ Remove click handlers from info icons (hover only)
+- ✅ Style tooltips consistently with platform design
+
+**Acceptance Criteria**:
+- [ ] Hovering user message info shows: "[timestamp]"
+- [ ] Hovering AI message info shows: "[timestamp] • [model]"
+- [ ] No click interaction on info icons
+- [ ] Tooltips appear/disappear smoothly with proper timing
+- [ ] Tooltip styling matches platform design system
+
+**Technical Implementation**:
+```typescript
+// Enhanced tooltip content generation
+private createInfoTooltip(message: ChatMessage): string {
+  const timestamp = new Date(message.timestamp).toLocaleString();
+  
+  if (message.role === 'user') {
+    return timestamp;
+  } else {
+    const model = message.metadata?.model || 'Unknown Model';
+    return `${timestamp} • ${model}`;
+  }
+}
+
+// Remove click handlers, add hover tooltips
+infoIcon.setAttribute('data-tooltip', this.createInfoTooltip(message));
+infoIcon.removeAttribute('onclick'); // No more click handlers
+```
+
+#### Task 2.1.3: Toolbar Layout & Alignment Fixes ⏳ PENDING
+**Priority**: Medium  
+**Estimated Time**: 5 minutes  
+**Dependencies**: Task 2.1.1
+
+**Specifications**:
+- ✅ Fix prompt button text alignment (left-align instead of right-align)
+- ✅ Ensure prompt text shows from beginning, not cut off on left
+- ✅ Implement proper text overflow handling with ellipsis
+- ✅ Test with various prompt name lengths
+
+**Acceptance Criteria**:
+- [ ] Prompt button text aligned to left edge
+- [ ] Long prompt names show beginning text, ellipsis at end
+- [ ] Button width accommodates typical prompt names
+- [ ] Text overflow handled gracefully
+- [ ] Consistent with other toolbar button styling
+
+**CSS Fixes Required**:
+```css
+.writerr-prompt-button {
+  text-align: left !important;
+  justify-content: flex-start !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+```
+
+#### Task 2.1.4: Smart Token Counter Integration ⏳ PENDING
+**Priority**: High  
+**Estimated Time**: 20 minutes  
+**Dependencies**: Task 2.1.1
+
+**Specifications**:
+- ✅ Remove all hardcoded token values (0/90000)
+- ✅ Implement context-aware token calculation using our sophisticated formula
+- ✅ Calculate: input text + context documents + conversation history
+- ✅ Update dynamically as context area changes
+- ✅ Show meaningful ratios based on selected model limits
+
+**Acceptance Criteria**:
+- [ ] No hardcoded token values anywhere in codebase
+- [ ] Token counter reflects: prompt + context + conversation tokens
+- [ ] Updates in real-time as user types or adds context
+- [ ] Model-specific token limits fetched from AI provider
+- [ ] Visual indicators when approaching token limits
+
+**Implementation Requirements**:
+```typescript
+// Dynamic token calculation
+class SmartTokenCounter {
+  calculateTotalTokens(): number {
+    const promptTokens = this.estimateTokens(this.getCurrentInput());
+    const contextTokens = this.calculateContextTokens();
+    const conversationTokens = this.calculateConversationTokens();
+    return promptTokens + contextTokens + conversationTokens;
+  }
+  
+  getModelTokenLimit(): number {
+    // Fetch from AI provider based on selected model
+    return this.aiProvider.getModelLimits(this.selectedModel).maxTokens;
+  }
+}
+```
+
+#### Task 2.1.5: Smart Document Integration Button ⏳ PENDING
+**Priority**: High  
+**Estimated Time**: 10 minutes  
+**Dependencies**: Task 2.1.1
+
+**Specifications**:
+- ✅ "Add Document" button adds currently active document to context
+- ✅ Button shows highlight/accent color when active document is in context
+- ✅ Button shows subtle gray when active document not in context
+- ✅ Single-click toggles active document in/out of context
+- ✅ Visual feedback immediate and clear
+
+**Acceptance Criteria**:
+- [ ] Button adds active document (not file picker) when clicked
+- [ ] Visual state clearly indicates if active document in context
+- [ ] Highlight color used when active document is added
+- [ ] Gray/subtle color when active document not added
+- [ ] Works seamlessly with existing context area functionality
+- [ ] Handles edge cases (no active document, non-text files)
+
+**State Management**:
+```typescript
+interface DocumentIntegrationButton {
+  isActiveDocumentInContext(): boolean;
+  toggleActiveDocumentInContext(): void;
+  updateButtonAppearance(): void;
+  getCurrentActiveDocument(): TFile | null;
+}
+
+// Visual states
+.writerr-add-document-button.active {
+  color: var(--interactive-accent) !important;
+  background: var(--interactive-accent-hover) !important;
+}
+
+.writerr-add-document-button.inactive {
+  color: var(--text-faint) !important;
+  background: transparent !important;
+}
+```
+
+## Phase 2 Task Summary
+
+**Total Estimated Time**: ~1 hour of focused UI refinement work
+
+### Quick Polish Tasks (60 minutes total):
+1. **Icon Standardization** (15 min) - messageSquare ribbon icon, larger sizes, proper Lucide info
+2. **Info Tooltips** (10 min) - Convert clicks to hover-only with timestamp/model info  
+3. **Prompt Button Alignment** (5 min) - Left-align text, show beginning not end
+4. **Smart Token Counter** (20 min) - Remove hardcoded values, implement our formula
+5. **Document Integration Button** (10 min) - Add active doc with highlight/gray states
+
+These focused tweaks will transform the interface from "working" to "polished professional experience."
+
+### 2.3 Writerr Platform Design System
+
+#### Task 1.4.1: Platform Design System Foundation
 
 #### Task 1.4.1: Platform Design System Foundation
 **Priority**: High  
