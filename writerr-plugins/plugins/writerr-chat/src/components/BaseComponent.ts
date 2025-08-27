@@ -23,6 +23,7 @@ export abstract class BaseComponent implements ChatComponent {
       text?: string;
       attrs?: Record<string, string>;
       styles?: Record<string, string>;
+      tooltip?: string;
     } = {}
   ): HTMLElement {
     const el = this.container.createEl(tag);
@@ -50,6 +51,10 @@ export abstract class BaseComponent implements ChatComponent {
         .map(([key, value]) => `${key}: ${value}`)
         .join('; ');
     }
+
+    if (options.tooltip) {
+      this.addTooltip(el, options.tooltip);
+    }
     
     return el;
   }
@@ -68,6 +73,13 @@ export abstract class BaseComponent implements ChatComponent {
       Object.entries(originalStyles).forEach(([key, value]) => {
         element.style[key as any] = value;
       });
+    });
+  }
+
+  protected addTooltip(element: HTMLElement, text: string, delay = 700): void {
+    // Dynamic import to avoid circular dependencies
+    import('../utils/tooltips').then(({ addTooltipToComponent }) => {
+      addTooltipToComponent(element, text);
     });
   }
 }

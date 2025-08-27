@@ -89,15 +89,16 @@ export class ContextArea extends BaseComponent {
     const rightSection = this.contextHeader.createEl('div');
     rightSection.style.cssText = 'display: flex; align-items: center; flex-shrink: 0;';
 
-    // Add document button using plus icon from centralized system
+    // Add document button using PLUS icon with unified tooltip
     const addDocButton = rightSection.createEl('button', { cls: 'context-add-button' });
-    addDocButton.innerHTML = Icons.filePlus2({ width: 18, height: 18 });
-    addDocButton.title = 'Attach document';
-    addDocButton.setAttribute('data-tooltip', 'Attach document');
+    addDocButton.innerHTML = Icons.plus({ width: 16, height: 16 });
     addDocButton.onclick = (e) => {
       e.stopPropagation();
       this.showDocumentPicker();
     };
+
+    // Add unified tooltip
+    this.addTooltip(addDocButton, 'Add document to context');
 
     // Header click to toggle collapse (but not on button)
     this.contextHeader.onclick = (e) => {
@@ -136,18 +137,20 @@ export class ContextArea extends BaseComponent {
 
   private createClearButton(): void {
     this.clearButton = this.documentsContainer.createEl('button', { cls: 'writerr-context-action' });
-    this.clearButton.title = 'Clear all context';
-    this.clearButton.setAttribute('data-tooltip', 'Clear all context');
     this.clearButton.onclick = (e) => {
       e.stopPropagation();
       this.clearAllDocuments();
     };
 
-    // Paintbrush icon using centralized system - same as toolbar
+    // Larger paintbrush icon - 18px instead of 14px
     this.clearButton.innerHTML = Icons.paintbrush({ 
       className: 'writerr-context-action-icon', 
-      ...ICON_STYLES.context 
+      width: 18, 
+      height: 18 
     });
+
+    // Add unified tooltip
+    this.addTooltip(this.clearButton, 'Clear all context');
     
     // Set initial state
     this.updateClearButtonState();
@@ -337,13 +340,18 @@ export class ContextArea extends BaseComponent {
 
   private updateCountBadge(badgeEl?: HTMLElement): void {
     const badge = badgeEl || this.container.querySelector('.context-count-badge') as HTMLElement;
-    if (!badge) return;
+    if (!badge) {
+      console.warn('Context count badge element not found');
+      return;
+    }
 
     const count = this.documents.length;
+    console.log(`Updating context count badge: ${count} documents`);
     
     if (count > 0) {
       badge.textContent = count.toString();
       badge.style.cssText = `
+        display: inline-block !important;
         background: var(--interactive-accent);
         color: var(--text-on-accent);
         font-size: 10px;

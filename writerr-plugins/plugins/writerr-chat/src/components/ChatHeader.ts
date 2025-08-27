@@ -73,8 +73,10 @@ export class ChatHeader extends BaseComponent {
         <path d="M12 7v5l4 2"/>
       </svg>
     `;
-    historyButton.title = 'Chat History';
     historyButton.onclick = () => this.events.onHistoryClick();
+
+    // Add unified tooltip
+    this.addTooltip(historyButton, 'Chat History');
 
     this.styleControlButton(historyButton);
   }
@@ -87,8 +89,10 @@ export class ChatHeader extends BaseComponent {
         <circle cx="12" cy="12" r="3"/>
       </svg>
     `;
-    settingsButton.title = 'Chat Settings';
     settingsButton.onclick = () => this.events.onSettingsClick();
+
+    // Add unified tooltip
+    this.addTooltip(settingsButton, 'Chat Settings');
 
     this.styleControlButton(settingsButton);
   }

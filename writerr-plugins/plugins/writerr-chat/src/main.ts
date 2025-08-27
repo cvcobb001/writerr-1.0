@@ -24,6 +24,8 @@ interface WriterrlChatSettings {
   enableMarkdown: boolean;
   showTimestamps: boolean;
   theme: 'default' | 'compact' | 'minimal';
+  selectedModel: string;
+  selectedPrompt: string;
 }
 
 const DEFAULT_SETTINGS: WriterrlChatSettings = {
@@ -44,8 +46,10 @@ const DEFAULT_SETTINGS: WriterrlChatSettings = {
   temperature: 0.7,
   enableMarkdown: true,
   showTimestamps: true,
-  theme: 'default'
-};
+  theme: 'default',
+  selectedModel: '',
+  selectedPrompt: ''
+};;
 
 // Build verification system
 const BUILD_TIMESTAMP = Date.now();
@@ -107,8 +111,8 @@ export default class WriterrlChatPlugin extends Plugin {
   padding: 0 !important;
   margin: 0 !important;
   cursor: pointer !important;
-  color: var(--text-muted) !important;
-  transition: color 0.2s ease !important;
+  color: var(--text-faint) !important;
+  transition: all 0.2s ease !important;
 }
 
 /* Send Button - Lifted off the edges */
@@ -136,25 +140,47 @@ export default class WriterrlChatPlugin extends Plugin {
   stroke-width: 2 !important;
 }
 
-/* Bottom Toolbar - Larger Icons, Closer Together */
+/* TOOLBAR CONTAINER - FORCE FLEX LAYOUT */
+.chat-toolbar-container {
+  border-top: none !important;
+  border: none !important;
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  padding: 8px 0 8px 12px !important;
+  background: var(--background-primary) !important;
+  font-size: 12px !important;
+  color: var(--text-faint) !important;
+  min-height: 44px !important;
+  overflow: hidden !important;
+}
+
+/* Bottom Toolbar Left - Tools Section - Subtle Gray */
 .writerr-toolbar-left {
   display: flex !important;
   align-items: center !important;
-  gap: 8px !important;
-  margin-left: 8px !important;
+  gap: 4px !important;
+  flex-shrink: 0 !important;
+  margin-left: 0 !important;
+  padding-left: 0 !important;
 }
 
-/* Toolbar Right - Adjusted spacing for dropdowns */
+/* Toolbar Right - Dropdowns and Counter - Subtle Gray */
 .toolbar-right {
   display: flex !important;
   align-items: center !important;
-  gap: 6px !important;
+  gap: 4px !important;
+  flex: 1 !important;
+  justify-content: flex-end !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
   margin-right: 8px !important;
 }
 
 .writerr-toolbar-button {
-  padding: 8px !important;
+  padding: 6px !important;
   border-radius: var(--radius-s) !important;
+  color: var(--text-faint) !important;
 }
 
 .writerr-toolbar-button:hover {
@@ -163,8 +189,8 @@ export default class WriterrlChatPlugin extends Plugin {
 }
 
 .writerr-toolbar-icon {
-  width: 18px !important;
-  height: 18px !important;
+  width: 16px !important;
+  height: 16px !important;
   stroke-width: 2 !important;
 }
 
@@ -180,10 +206,28 @@ export default class WriterrlChatPlugin extends Plugin {
   padding-right: 60px !important;
 }
 
-/* Context Area - Light Border Above */
+/* Context Area - Subtle styling */
 .context-header {
   border-top: 1px solid var(--background-modifier-border) !important;
   padding-top: 8px !important;
+  color: var(--text-faint) !important;
+}
+
+.context-collapse-icon {
+  color: var(--text-faint) !important;
+}
+
+.context-header:hover .context-collapse-icon {
+  color: var(--text-muted) !important;
+}
+
+/* Context label subtle */
+.context-header span {
+  color: var(--text-faint) !important;
+}
+
+.context-header:hover span {
+  color: var(--text-muted) !important;
 }
 
 /* Header - NO CARET */
@@ -220,20 +264,31 @@ export default class WriterrlChatPlugin extends Plugin {
   display: none !important;
 }
 
-/* Token Counter - Force Monospace */
+/* Token Counter - Subtle */
 .writerr-token-count {
   font-size: var(--font-ui-smaller) !important;
-  color: var(--text-muted) !important;
+  color: var(--text-faint) !important;
   font-variant-numeric: tabular-nums !important;
   font-family: var(--font-monospace) !important;
   font-feature-settings: "tnum" !important;
-  margin-right: 8px !important;
+  margin-right: 6px !important;
 }
 
-/* Context Add Button - Clean Plus */
+
+/* Dropdown hover styles */
+select:hover {
+  color: var(--text-normal) !important;
+}
+
+.toolbar-right select:hover + div {
+  color: var(--text-normal) !important;
+}
+
+/* Context Add Button - Subtle Gray */
 .context-add-button {
   padding: 4px !important;
   border-radius: var(--radius-s) !important;
+  color: var(--text-faint) !important;
 }
 
 .context-add-button:hover {
@@ -241,7 +296,7 @@ export default class WriterrlChatPlugin extends Plugin {
   background: var(--background-modifier-hover) !important;
 }
 
-/* Context Action Button */
+/* Context Action Button - Subtle */
 .writerr-context-action {
   padding: 4px !important;
   position: absolute !important;
@@ -249,6 +304,7 @@ export default class WriterrlChatPlugin extends Plugin {
   right: 16px !important;
   z-index: 10 !important;
   border-radius: var(--radius-s) !important;
+  color: var(--text-faint) !important;
 }
 
 .writerr-context-action:hover {
@@ -257,14 +313,14 @@ export default class WriterrlChatPlugin extends Plugin {
 }
 
 .writerr-context-action:disabled {
-  opacity: 0.5 !important;
+  opacity: 0.3 !important;
   cursor: not-allowed !important;
   pointer-events: none !important;
 }
 
 .writerr-context-action-icon {
-  width: 14px !important;
-  height: 14px !important;
+  width: 18px !important;
+  height: 18px !important;
   stroke-width: 2 !important;
 }
 
@@ -310,7 +366,7 @@ export default class WriterrlChatPlugin extends Plugin {
   stroke-width: 2 !important;
 }
 
-/* Chat Control Buttons - Header Icons */
+/* Chat Control Buttons - Header Icons - REMOVE SETTINGS */
 .chat-control-button {
   padding: 8px !important;
   border-radius: var(--radius-s) !important;
@@ -320,18 +376,28 @@ export default class WriterrlChatPlugin extends Plugin {
   color: var(--text-normal) !important;
   background: var(--background-modifier-hover) !important;
 }
+
+/* Hide settings button */
+.chat-control-button:last-child {
+  display: none !important;
+}
 `;
 
-    // Remove any existing styles first
+    // Force remove any existing styles and recreate with timestamp
+    const timestamp = Date.now();
     const existing = document.getElementById('writerr-chat-styles');
     if (existing) existing.remove();
 
+    // Force reflow
+    document.body.offsetHeight;
+
     const styleEl = document.createElement('style');
     styleEl.id = 'writerr-chat-styles';
-    styleEl.textContent = styles;
+    styleEl.setAttribute('data-timestamp', timestamp.toString());
     document.head.appendChild(styleEl);
+    styleEl.textContent = styles;
     
-    console.log('Writerr Chat: Fixed context button positioning and send icon spacing');
+    console.log(`Writerr Chat: Force reloaded CSS styles at ${timestamp}`);
   }
 
   onunload() {

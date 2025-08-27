@@ -91,6 +91,224 @@ var init_utils = __esm({
   }
 });
 
+// plugins/writerr-chat/src/utils/tooltips.ts
+var tooltips_exports = {};
+__export(tooltips_exports, {
+  TooltipManager: () => TooltipManager,
+  addTooltip: () => addTooltip,
+  addTooltipToComponent: () => addTooltipToComponent
+});
+function addTooltip(element, text, delay = 700) {
+  const manager = TooltipManager.getInstance();
+  manager.addTooltip(element, { text, delay });
+}
+function addTooltipToComponent(element, text) {
+  element.removeAttribute("title");
+  element.removeAttribute("data-tooltip");
+  addTooltip(element, text);
+}
+var TooltipManager;
+var init_tooltips = __esm({
+  "plugins/writerr-chat/src/utils/tooltips.ts"() {
+    "use strict";
+    TooltipManager = class _TooltipManager {
+      constructor() {
+        this.activeTooltip = null;
+        this.showTimeout = null;
+        this.hideTimeout = null;
+        this.addGlobalStyles();
+      }
+      static getInstance() {
+        if (!_TooltipManager.instance) {
+          _TooltipManager.instance = new _TooltipManager();
+        }
+        return _TooltipManager.instance;
+      }
+      addGlobalStyles() {
+        const existingStyle = document.getElementById("writerr-tooltip-styles");
+        if (existingStyle)
+          return;
+        const styles = `
+/* Writerr Unified Tooltip Styles */
+.writerr-tooltip {
+  position: fixed !important;
+  z-index: 9999 !important;
+  background: rgba(0, 0, 0, 0.9) !important;
+  color: white !important;
+  padding: 6px 10px !important;
+  border-radius: 6px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  white-space: nowrap !important;
+  pointer-events: none !important;
+  opacity: 0 !important;
+  transform: translateY(4px) !important;
+  transition: all 0.15s ease !important;
+  backdrop-filter: blur(4px) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+  font-family: var(--font-interface) !important;
+  line-height: 1.2 !important;
+}
+
+.writerr-tooltip.visible {
+  opacity: 1 !important;
+  transform: translateY(0) !important;
+}
+
+.writerr-tooltip::before {
+  content: '' !important;
+  position: absolute !important;
+  width: 0 !important;
+  height: 0 !important;
+  border-style: solid !important;
+}
+
+.writerr-tooltip.position-top::before {
+  top: 100% !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  border-width: 4px 4px 0 4px !important;
+  border-color: rgba(0, 0, 0, 0.9) transparent transparent transparent !important;
+}
+
+.writerr-tooltip.position-bottom::before {
+  bottom: 100% !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  border-width: 0 4px 4px 4px !important;
+  border-color: transparent transparent rgba(0, 0, 0, 0.9) transparent !important;
+}
+
+.writerr-tooltip.position-left::before {
+  left: 100% !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  border-width: 4px 0 4px 4px !important;
+  border-color: transparent transparent transparent rgba(0, 0, 0, 0.9) !important;
+}
+
+.writerr-tooltip.position-right::before {
+  right: 100% !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  border-width: 4px 4px 4px 0 !important;
+  border-color: transparent rgba(0, 0, 0, 0.9) transparent transparent !important;
+}
+`;
+        const styleEl = document.createElement("style");
+        styleEl.id = "writerr-tooltip-styles";
+        styleEl.textContent = styles;
+        document.head.appendChild(styleEl);
+      }
+      addTooltip(element, options) {
+        const { text, delay = 700, offset = 8 } = options;
+        element.addEventListener("mouseenter", (e) => {
+          this.clearTimeouts();
+          this.showTimeout = window.setTimeout(() => {
+            this.showTooltip(element, text, offset);
+          }, delay);
+        });
+        element.addEventListener("mouseleave", () => {
+          this.clearTimeouts();
+          this.hideTimeout = window.setTimeout(() => {
+            this.hideTooltip();
+          }, 100);
+        });
+        const observer = new MutationObserver((mutations) => {
+          mutations.forEach((mutation) => {
+            if (mutation.type === "childList") {
+              mutation.removedNodes.forEach((node) => {
+                if (node === element || node.nodeType === Node.ELEMENT_NODE && node.contains(element)) {
+                  this.hideTooltip();
+                  observer.disconnect();
+                }
+              });
+            }
+          });
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+      }
+      showTooltip(element, text, offset) {
+        this.hideTooltip();
+        const tooltip = document.createElement("div");
+        tooltip.className = "writerr-tooltip";
+        tooltip.textContent = text;
+        document.body.appendChild(tooltip);
+        this.activeTooltip = tooltip;
+        const elementRect = element.getBoundingClientRect();
+        const tooltipRect = tooltip.getBoundingClientRect();
+        const viewport = {
+          width: window.innerWidth,
+          height: window.innerHeight
+        };
+        let position = "top";
+        let left = 0;
+        let top = 0;
+        const spaceAbove = elementRect.top;
+        const spaceBelow = viewport.height - elementRect.bottom;
+        const spaceLeft = elementRect.left;
+        const spaceRight = viewport.width - elementRect.right;
+        const minSpace = tooltipRect.height + offset + 4;
+        const topMinSpace = tooltipRect.height + offset - 10;
+        if (spaceAbove >= topMinSpace) {
+          position = "top";
+          top = elementRect.top - tooltipRect.height - offset;
+          left = elementRect.left + elementRect.width / 2 - tooltipRect.width / 2;
+        } else if (spaceBelow >= minSpace) {
+          position = "bottom";
+          top = elementRect.bottom + offset;
+          left = elementRect.left + elementRect.width / 2 - tooltipRect.width / 2;
+        } else if (spaceLeft >= tooltipRect.width + offset) {
+          position = "left";
+          top = elementRect.top + elementRect.height / 2 - tooltipRect.height / 2;
+          left = elementRect.left - tooltipRect.width - offset;
+        } else if (spaceRight >= tooltipRect.width + offset) {
+          position = "right";
+          top = elementRect.top + elementRect.height / 2 - tooltipRect.height / 2;
+          left = elementRect.right + offset;
+        } else {
+          position = "top";
+          top = Math.max(4, elementRect.top - tooltipRect.height - offset);
+          left = elementRect.left + elementRect.width / 2 - tooltipRect.width / 2;
+        }
+        left = Math.max(8, Math.min(left, viewport.width - tooltipRect.width - 8));
+        if (position === "top") {
+          top = Math.max(4, top);
+        } else {
+          top = Math.max(8, Math.min(top, viewport.height - tooltipRect.height - 8));
+        }
+        tooltip.style.left = `${left}px`;
+        tooltip.style.top = `${top}px`;
+        tooltip.classList.add(`position-${position}`);
+        requestAnimationFrame(() => {
+          tooltip.classList.add("visible");
+        });
+      }
+      hideTooltip() {
+        if (this.activeTooltip) {
+          this.activeTooltip.classList.remove("visible");
+          setTimeout(() => {
+            if (this.activeTooltip) {
+              this.activeTooltip.remove();
+              this.activeTooltip = null;
+            }
+          }, 150);
+        }
+      }
+      clearTimeouts() {
+        if (this.showTimeout) {
+          clearTimeout(this.showTimeout);
+          this.showTimeout = null;
+        }
+        if (this.hideTimeout) {
+          clearTimeout(this.hideTimeout);
+          this.hideTimeout = null;
+        }
+      }
+    };
+  }
+});
+
 // plugins/writerr-chat/src/main.ts
 var main_exports = {};
 __export(main_exports, {
@@ -238,6 +456,9 @@ var BaseComponent = class {
     if (options.styles) {
       el.style.cssText = Object.entries(options.styles).map(([key, value]) => `${key}: ${value}`).join("; ");
     }
+    if (options.tooltip) {
+      this.addTooltip(el, options.tooltip);
+    }
     return el;
   }
   addHoverEffect(element, hoverStyles) {
@@ -252,6 +473,11 @@ var BaseComponent = class {
       Object.entries(originalStyles).forEach(([key, value]) => {
         element.style[key] = value;
       });
+    });
+  }
+  addTooltip(element, text, delay = 700) {
+    Promise.resolve().then(() => (init_tooltips(), tooltips_exports)).then(({ addTooltipToComponent: addTooltipToComponent2 }) => {
+      addTooltipToComponent2(element, text);
     });
   }
 };
@@ -276,6 +502,7 @@ var ICON_PATHS = {
   // File & Document Actions  
   filePlus2: ["M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z", "M14 2v6h6", "M12 12v6", "M9 15h6"],
   copy: ['rect width="14" height="14" x="8" y="8" rx="2" ry="2"', 'path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"'],
+  plus: ["M12 5v14", "M5 12h14"],
   // Editing & Cleanup
   paintbrush: ["M18.37 2.63 14 7l-1.59-1.59a2 2 0 0 0-2.82 0L8 7l9 9 1.59-1.59a2 2 0 0 0 0-2.82L17 10l4.37-4.37a2.12 2.12 0 1 0-3-3Z", "M9 8c-2 3-4 3.5-7 4l8 10c2-1 6-5 6-7", "M14.5 17.5L4.5 15"],
   // Navigation & UI
@@ -358,12 +585,15 @@ var Icons = {
   copy: (config) => createIcon("copy", config),
   paintbrush: (config) => createIcon("paintbrush", config),
   filePlus2: (config) => createIcon("filePlus2", config),
+  plus: (config) => createIcon("plus", config),
   chevronDown: (config) => createIcon("chevronDown", config),
   eye: (config) => createIcon("eye", config),
   loader: (config) => createIcon("loader", config),
   trash: (config) => createIcon("trash", config),
   refresh: (config) => createIcon("refresh", config),
-  edit3: (config) => createIcon("edit3", config)
+  edit3: (config) => createIcon("edit3", config),
+  x: (config) => createIcon("x", config),
+  info: (config) => createIcon("info", config)
 };
 
 // plugins/writerr-chat/src/components/MessageBubble.ts
@@ -468,6 +698,11 @@ var MessageBubble = class extends BaseComponent {
     const contentWrapper = this.messageEl.querySelector(".message-content-wrapper");
     this.actionsEl = contentWrapper.createEl("div", { cls: "writerr-message-actions" });
     if (isUser) {
+      this.actionsEl.style.justifyContent = "flex-end";
+    } else {
+      this.actionsEl.style.justifyContent = "flex-start";
+    }
+    if (isUser) {
       this.createActionButton(
         "copy",
         "Copy message",
@@ -504,7 +739,6 @@ var MessageBubble = class extends BaseComponent {
   createActionButton(type, tooltip, icon, onClick) {
     const btn = this.actionsEl.createEl("button", { cls: `message-action-btn action-${type}` });
     btn.innerHTML = icon;
-    btn.title = tooltip;
     btn.onclick = onClick;
     btn.style.cssText = `
       background: transparent !important;
@@ -522,6 +756,7 @@ var MessageBubble = class extends BaseComponent {
       height: 24px !important;
       opacity: 0.6 !important;
     `;
+    this.addTooltip(btn, tooltip);
     btn.offsetHeight;
     this.addHoverEffect(btn, {
       "color": "var(--text-muted)",
@@ -586,8 +821,8 @@ var ChatHeader = class extends BaseComponent {
         <path d="M12 7v5l4 2"/>
       </svg>
     `;
-    historyButton.title = "Chat History";
     historyButton.onclick = () => this.events.onHistoryClick();
+    this.addTooltip(historyButton, "Chat History");
     this.styleControlButton(historyButton);
   }
   createSettingsButton(parent) {
@@ -598,8 +833,8 @@ var ChatHeader = class extends BaseComponent {
         <circle cx="12" cy="12" r="3"/>
       </svg>
     `;
-    settingsButton.title = "Chat Settings";
     settingsButton.onclick = () => this.events.onSettingsClick();
+    this.addTooltip(settingsButton, "Chat Settings");
     this.styleControlButton(settingsButton);
   }
   createStatusIndicator(parent) {
@@ -804,13 +1039,12 @@ var ContextArea = class extends BaseComponent {
     const rightSection = this.contextHeader.createEl("div");
     rightSection.style.cssText = "display: flex; align-items: center; flex-shrink: 0;";
     const addDocButton = rightSection.createEl("button", { cls: "context-add-button" });
-    addDocButton.innerHTML = Icons.filePlus2({ width: 18, height: 18 });
-    addDocButton.title = "Attach document";
-    addDocButton.setAttribute("data-tooltip", "Attach document");
+    addDocButton.innerHTML = Icons.plus({ width: 16, height: 16 });
     addDocButton.onclick = (e) => {
       e.stopPropagation();
       this.showDocumentPicker();
     };
+    this.addTooltip(addDocButton, "Add document to context");
     this.contextHeader.onclick = (e) => {
       if (e.target !== addDocButton && !addDocButton.contains(e.target)) {
         this.toggleCollapse();
@@ -842,16 +1076,16 @@ var ContextArea = class extends BaseComponent {
   }
   createClearButton() {
     this.clearButton = this.documentsContainer.createEl("button", { cls: "writerr-context-action" });
-    this.clearButton.title = "Clear all context";
-    this.clearButton.setAttribute("data-tooltip", "Clear all context");
     this.clearButton.onclick = (e) => {
       e.stopPropagation();
       this.clearAllDocuments();
     };
     this.clearButton.innerHTML = Icons.paintbrush({
       className: "writerr-context-action-icon",
-      ...ICON_STYLES.context
+      width: 18,
+      height: 18
     });
+    this.addTooltip(this.clearButton, "Clear all context");
     this.updateClearButtonState();
   }
   styleActionButton(button) {
@@ -1003,12 +1237,16 @@ var ContextArea = class extends BaseComponent {
   }
   updateCountBadge(badgeEl) {
     const badge = badgeEl || this.container.querySelector(".context-count-badge");
-    if (!badge)
+    if (!badge) {
+      console.warn("Context count badge element not found");
       return;
+    }
     const count = this.documents.length;
+    console.log(`Updating context count badge: ${count} documents`);
     if (count > 0) {
       badge.textContent = count.toString();
       badge.style.cssText = `
+        display: inline-block !important;
         background: var(--interactive-accent);
         color: var(--text-on-accent);
         font-size: 10px;
@@ -1225,7 +1463,7 @@ var ChatInput = class extends BaseComponent {
   }
   createInputContainer() {
     this.container.style.cssText = `
-      padding: 16px;
+      padding: 8px;
       background: var(--background-primary);
       position: relative;
     `;
@@ -1235,14 +1473,14 @@ var ChatInput = class extends BaseComponent {
       cls: "chat-message-input",
       attr: {
         placeholder: "Type your message...",
-        rows: "2"
+        rows: "3"
       }
     });
     this.messageInput.style.cssText = `
       width: 100%;
-      min-height: 60px;
-      max-height: 160px;
-      padding: 16px 52px 16px 16px;
+      min-height: 80px;
+      max-height: 200px;
+      padding: 12px 52px 12px 12px;
       border: 2px solid var(--background-modifier-border);
       border-radius: 12px;
       background: var(--background-primary);
@@ -1433,16 +1671,24 @@ var ChatToolbar = class extends BaseComponent {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 12px 16px;
+      padding: 8px 12px;
       border-top: 1px solid var(--background-modifier-border);
       background: var(--background-primary);
       font-size: 12px;
       color: var(--text-muted);
+      min-height: 44px;
+      overflow: hidden;
     `;
   }
   createLeftSection() {
     const leftContainer = this.createElement("div", {
-      cls: "writerr-toolbar-left"
+      cls: "writerr-toolbar-left",
+      styles: {
+        display: "flex",
+        alignItems: "center",
+        gap: "6px",
+        flexShrink: "0"
+      }
     });
     this.createActionButton(
       leftContainer,
@@ -1469,29 +1715,34 @@ var ChatToolbar = class extends BaseComponent {
       styles: {
         display: "flex",
         alignItems: "center",
-        gap: "8px"
-        // Reduced gap to make room
+        gap: "6px",
+        flex: "1",
+        justifyContent: "flex-end",
+        minWidth: "0",
+        overflow: "hidden"
       }
     });
-    this.createModelSelect(rightContainer);
     this.createPromptSelect(rightContainer);
+    this.createModelSelect(rightContainer);
     this.createTokenCounter(rightContainer);
   }
   createActionButton(parent, tooltip, icon, onClick) {
     const button = parent.createEl("button", {
-      cls: "writerr-toolbar-button",
-      attr: { "data-tooltip": tooltip }
+      cls: "writerr-toolbar-button"
     });
     button.innerHTML = icon;
     button.onclick = onClick;
+    this.addTooltip(button, tooltip);
   }
   createModelSelect(parent) {
     const modelContainer = parent.createDiv();
     modelContainer.style.cssText = `
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 4px;
       position: relative;
+      flex-shrink: 1;
+      min-width: 80px;
     `;
     this.statusIndicator = modelContainer.createEl("div", { cls: "status-indicator" });
     this.updateStatusIndicator();
@@ -1500,29 +1751,40 @@ var ChatToolbar = class extends BaseComponent {
       border: none !important;
       box-shadow: none !important;
       background: transparent !important;
-      padding: 4px 20px 4px 4px !important;
+      padding: 4px 16px 4px 4px !important;
       margin: 0 !important;
       font-size: 12px;
-      color: var(--text-muted);
+      color: var(--text-faint);
       cursor: pointer;
       outline: none;
       appearance: none;
       -webkit-appearance: none;
       -moz-appearance: none;
-      max-width: 120px;
+      min-width: 0;
+      max-width: 100px;
+      width: 100px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     `;
     const caret = modelContainer.createEl("div");
-    caret.innerHTML = Icons.chevronDown({ width: 12, height: 12 });
+    caret.innerHTML = Icons.chevronDown({ width: 10, height: 10 });
     caret.style.cssText = `
       pointer-events: none;
-      color: var(--text-muted);
+      color: var(--text-faint);
       position: absolute;
       right: 2px;
       display: flex;
       align-items: center;
+      flex-shrink: 0;
     `;
     this.populateModelOptions();
-    this.modelSelect.addEventListener("change", () => {
+    if (this.plugin.settings.selectedModel) {
+      this.modelSelect.value = this.plugin.settings.selectedModel;
+    }
+    this.modelSelect.addEventListener("change", async () => {
+      this.plugin.settings.selectedModel = this.modelSelect.value;
+      await this.plugin.saveSettings();
       this.events.onModelChange(this.modelSelect.value);
     });
   }
@@ -1531,37 +1793,50 @@ var ChatToolbar = class extends BaseComponent {
     promptContainer.style.cssText = `
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 4px;
       position: relative;
+      flex-shrink: 1;
+      min-width: 60px;
     `;
     this.promptSelect = promptContainer.createEl("select");
     this.promptSelect.style.cssText = `
       border: none !important;
       box-shadow: none !important;
       background: transparent !important;
-      padding: 4px 20px 4px 4px !important;
+      padding: 4px 16px 4px 4px !important;
       margin: 0 !important;
       font-size: 12px;
-      color: var(--text-muted);
+      color: var(--text-faint);
       cursor: pointer;
       outline: none;
       appearance: none;
       -webkit-appearance: none;
       -moz-appearance: none;
-      max-width: 100px;
+      min-width: 0;
+      max-width: 80px;
+      width: 80px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     `;
     const caret = promptContainer.createEl("div");
-    caret.innerHTML = Icons.chevronDown({ width: 12, height: 12 });
+    caret.innerHTML = Icons.chevronDown({ width: 10, height: 10 });
     caret.style.cssText = `
       pointer-events: none;
-      color: var(--text-muted);
+      color: var(--text-faint);
       position: absolute;
       right: 2px;
       display: flex;
       align-items: center;
+      flex-shrink: 0;
     `;
     this.populatePromptOptions();
-    this.promptSelect.addEventListener("change", () => {
+    if (this.plugin.settings.selectedPrompt) {
+      this.promptSelect.value = this.plugin.settings.selectedPrompt;
+    }
+    this.promptSelect.addEventListener("change", async () => {
+      this.plugin.settings.selectedPrompt = this.promptSelect.value;
+      await this.plugin.saveSettings();
       this.events.onPromptChange(this.promptSelect.value);
     });
   }
@@ -1611,20 +1886,20 @@ var ChatToolbar = class extends BaseComponent {
         return;
       }
       for (const [provider, families] of Object.entries(availableProviders)) {
-        const providerGroup = this.modelSelect.createEl("optgroup", { label: provider });
         for (const [family, models] of Object.entries(families)) {
-          const familyGroup = this.modelSelect.createEl("optgroup", { label: `  ${family}` });
+          const groupLabel = `${provider} \u2192 ${family}`;
+          const familyGroup = this.modelSelect.createEl("optgroup", { label: groupLabel });
           models.forEach((model) => {
             familyGroup.createEl("option", {
               value: `${provider}:${model}`,
               // Store provider:model for routing
-              text: `    ${model}`
-              // Display only model name with indent
+              text: model
+              // Display only model name (clean)
             });
           });
         }
       }
-      console.log("Successfully populated model dropdown with providers");
+      console.log("Successfully populated model dropdown with provider \u2192 family grouping");
     } catch (error) {
       console.error("Error populating model options:", error);
       this.modelSelect.createEl("option", {
@@ -2807,7 +3082,9 @@ var DEFAULT_SETTINGS = {
   temperature: 0.7,
   enableMarkdown: true,
   showTimestamps: true,
-  theme: "default"
+  theme: "default",
+  selectedModel: "",
+  selectedPrompt: ""
 };
 var BUILD_TIMESTAMP = Date.now();
 var BUILD_VERSION = "v2.0.1-fix-ai-providers";
@@ -2849,8 +3126,8 @@ var WriterrlChatPlugin = class extends import_obsidian4.Plugin {
   padding: 0 !important;
   margin: 0 !important;
   cursor: pointer !important;
-  color: var(--text-muted) !important;
-  transition: color 0.2s ease !important;
+  color: var(--text-faint) !important;
+  transition: all 0.2s ease !important;
 }
 
 /* Send Button - Lifted off the edges */
@@ -2878,25 +3155,47 @@ var WriterrlChatPlugin = class extends import_obsidian4.Plugin {
   stroke-width: 2 !important;
 }
 
-/* Bottom Toolbar - Larger Icons, Closer Together */
+/* TOOLBAR CONTAINER - FORCE FLEX LAYOUT */
+.chat-toolbar-container {
+  border-top: none !important;
+  border: none !important;
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  padding: 8px 0 8px 12px !important;
+  background: var(--background-primary) !important;
+  font-size: 12px !important;
+  color: var(--text-faint) !important;
+  min-height: 44px !important;
+  overflow: hidden !important;
+}
+
+/* Bottom Toolbar Left - Tools Section - Subtle Gray */
 .writerr-toolbar-left {
   display: flex !important;
   align-items: center !important;
-  gap: 8px !important;
-  margin-left: 8px !important;
+  gap: 4px !important;
+  flex-shrink: 0 !important;
+  margin-left: 0 !important;
+  padding-left: 0 !important;
 }
 
-/* Toolbar Right - Adjusted spacing for dropdowns */
+/* Toolbar Right - Dropdowns and Counter - Subtle Gray */
 .toolbar-right {
   display: flex !important;
   align-items: center !important;
-  gap: 6px !important;
+  gap: 4px !important;
+  flex: 1 !important;
+  justify-content: flex-end !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
   margin-right: 8px !important;
 }
 
 .writerr-toolbar-button {
-  padding: 8px !important;
+  padding: 6px !important;
   border-radius: var(--radius-s) !important;
+  color: var(--text-faint) !important;
 }
 
 .writerr-toolbar-button:hover {
@@ -2905,8 +3204,8 @@ var WriterrlChatPlugin = class extends import_obsidian4.Plugin {
 }
 
 .writerr-toolbar-icon {
-  width: 18px !important;
-  height: 18px !important;
+  width: 16px !important;
+  height: 16px !important;
   stroke-width: 2 !important;
 }
 
@@ -2922,10 +3221,28 @@ var WriterrlChatPlugin = class extends import_obsidian4.Plugin {
   padding-right: 60px !important;
 }
 
-/* Context Area - Light Border Above */
+/* Context Area - Subtle styling */
 .context-header {
   border-top: 1px solid var(--background-modifier-border) !important;
   padding-top: 8px !important;
+  color: var(--text-faint) !important;
+}
+
+.context-collapse-icon {
+  color: var(--text-faint) !important;
+}
+
+.context-header:hover .context-collapse-icon {
+  color: var(--text-muted) !important;
+}
+
+/* Context label subtle */
+.context-header span {
+  color: var(--text-faint) !important;
+}
+
+.context-header:hover span {
+  color: var(--text-muted) !important;
 }
 
 /* Header - NO CARET */
@@ -2962,20 +3279,31 @@ var WriterrlChatPlugin = class extends import_obsidian4.Plugin {
   display: none !important;
 }
 
-/* Token Counter - Force Monospace */
+/* Token Counter - Subtle */
 .writerr-token-count {
   font-size: var(--font-ui-smaller) !important;
-  color: var(--text-muted) !important;
+  color: var(--text-faint) !important;
   font-variant-numeric: tabular-nums !important;
   font-family: var(--font-monospace) !important;
   font-feature-settings: "tnum" !important;
-  margin-right: 8px !important;
+  margin-right: 6px !important;
 }
 
-/* Context Add Button - Clean Plus */
+
+/* Dropdown hover styles */
+select:hover {
+  color: var(--text-normal) !important;
+}
+
+.toolbar-right select:hover + div {
+  color: var(--text-normal) !important;
+}
+
+/* Context Add Button - Subtle Gray */
 .context-add-button {
   padding: 4px !important;
   border-radius: var(--radius-s) !important;
+  color: var(--text-faint) !important;
 }
 
 .context-add-button:hover {
@@ -2983,7 +3311,7 @@ var WriterrlChatPlugin = class extends import_obsidian4.Plugin {
   background: var(--background-modifier-hover) !important;
 }
 
-/* Context Action Button */
+/* Context Action Button - Subtle */
 .writerr-context-action {
   padding: 4px !important;
   position: absolute !important;
@@ -2991,6 +3319,7 @@ var WriterrlChatPlugin = class extends import_obsidian4.Plugin {
   right: 16px !important;
   z-index: 10 !important;
   border-radius: var(--radius-s) !important;
+  color: var(--text-faint) !important;
 }
 
 .writerr-context-action:hover {
@@ -2999,14 +3328,14 @@ var WriterrlChatPlugin = class extends import_obsidian4.Plugin {
 }
 
 .writerr-context-action:disabled {
-  opacity: 0.5 !important;
+  opacity: 0.3 !important;
   cursor: not-allowed !important;
   pointer-events: none !important;
 }
 
 .writerr-context-action-icon {
-  width: 14px !important;
-  height: 14px !important;
+  width: 18px !important;
+  height: 18px !important;
   stroke-width: 2 !important;
 }
 
@@ -3052,7 +3381,7 @@ var WriterrlChatPlugin = class extends import_obsidian4.Plugin {
   stroke-width: 2 !important;
 }
 
-/* Chat Control Buttons - Header Icons */
+/* Chat Control Buttons - Header Icons - REMOVE SETTINGS */
 .chat-control-button {
   padding: 8px !important;
   border-radius: var(--radius-s) !important;
@@ -3062,15 +3391,23 @@ var WriterrlChatPlugin = class extends import_obsidian4.Plugin {
   color: var(--text-normal) !important;
   background: var(--background-modifier-hover) !important;
 }
+
+/* Hide settings button */
+.chat-control-button:last-child {
+  display: none !important;
+}
 `;
+    const timestamp = Date.now();
     const existing = document.getElementById("writerr-chat-styles");
     if (existing)
       existing.remove();
+    document.body.offsetHeight;
     const styleEl = document.createElement("style");
     styleEl.id = "writerr-chat-styles";
-    styleEl.textContent = styles;
+    styleEl.setAttribute("data-timestamp", timestamp.toString());
     document.head.appendChild(styleEl);
-    console.log("Writerr Chat: Fixed context button positioning and send icon spacing");
+    styleEl.textContent = styles;
+    console.log(`Writerr Chat: Force reloaded CSS styles at ${timestamp}`);
   }
   onunload() {
     this.cleanupGlobalAPI();

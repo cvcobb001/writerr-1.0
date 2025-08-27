@@ -32,6 +32,7 @@ export const ICON_PATHS = {
   // File & Document Actions  
   filePlus2: ['M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z', 'M14 2v6h6', 'M12 12v6', 'M9 15h6'],
   copy: ['rect width="14" height="14" x="8" y="8" rx="2" ry="2"', 'path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"'],
+  plus: ['M12 5v14', 'M5 12h14'],
   
   // Editing & Cleanup
   paintbrush: ['M18.37 2.63 14 7l-1.59-1.59a2 2 0 0 0-2.82 0L8 7l9 9 1.59-1.59a2 2 0 0 0 0-2.82L17 10l4.37-4.37a2.12 2.12 0 1 0-3-3Z', 'M9 8c-2 3-4 3.5-7 4l8 10c2-1 6-5 6-7', 'M14.5 17.5L4.5 15'],
@@ -58,7 +59,7 @@ export const ICON_PATHS = {
   // Text & Editing
   type: ['polyline points="4,7 4,4 20,4 20,7"', 'line x1="9" y1="20" x2="15" y2="20"', 'line x1="12" y1="4" x2="12" y2="20"'],
   edit3: ['path d="M12 20h9"', 'path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"']
-} as const;
+} as const;;
 
 export type IconName = keyof typeof ICON_PATHS;
 
@@ -166,10 +167,13 @@ export const Icons = {
   copy: (config?: Partial<IconConfig>) => createIcon('copy', config),
   paintbrush: (config?: Partial<IconConfig>) => createIcon('paintbrush', config),
   filePlus2: (config?: Partial<IconConfig>) => createIcon('filePlus2', config),
+  plus: (config?: Partial<IconConfig>) => createIcon('plus', config),
   chevronDown: (config?: Partial<IconConfig>) => createIcon('chevronDown', config),
   eye: (config?: Partial<IconConfig>) => createIcon('eye', config),
   loader: (config?: Partial<IconConfig>) => createIcon('loader', config),
   trash: (config?: Partial<IconConfig>) => createIcon('trash', config),
   refresh: (config?: Partial<IconConfig>) => createIcon('refresh', config),
-  edit3: (config?: Partial<IconConfig>) => createIcon('edit3', config)
-} as const;
+  edit3: (config?: Partial<IconConfig>) => createIcon('edit3', config),
+  x: (config?: Partial<IconConfig>) => createIcon('x', config),
+  info: (config?: Partial<IconConfig>) => createIcon('info', config)
+};

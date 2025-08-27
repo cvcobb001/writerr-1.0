@@ -134,6 +134,13 @@ export class MessageBubble extends BaseComponent {
     const contentWrapper = this.messageEl.querySelector('.message-content-wrapper') as HTMLElement;
     this.actionsEl = contentWrapper.createEl('div', { cls: 'writerr-message-actions' });
 
+    // Align actions to the right for user messages, left for AI messages
+    if (isUser) {
+      this.actionsEl.style.justifyContent = 'flex-end';
+    } else {
+      this.actionsEl.style.justifyContent = 'flex-start';
+    }
+
     if (isUser) {
       // User message actions: ONLY copy and info (NO retry)
       this.createActionButton('copy', 'Copy message', 
@@ -167,7 +174,6 @@ export class MessageBubble extends BaseComponent {
   private createActionButton(type: string, tooltip: string, icon: string, onClick: () => void): void {
     const btn = this.actionsEl.createEl('button', { cls: `message-action-btn action-${type}` });
     btn.innerHTML = icon;
-    btn.title = tooltip;
     btn.onclick = onClick;
 
     btn.style.cssText = `
@@ -186,6 +192,9 @@ export class MessageBubble extends BaseComponent {
       height: 24px !important;
       opacity: 0.6 !important;
     `;
+
+    // Add unified tooltip
+    this.addTooltip(btn, tooltip);
 
     // Force reflow
     btn.offsetHeight;

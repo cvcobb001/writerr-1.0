@@ -37,17 +37,25 @@ export class ChatToolbar extends BaseComponent {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 12px 16px;
+      padding: 8px 12px;
       border-top: 1px solid var(--background-modifier-border);
       background: var(--background-primary);
       font-size: 12px;
       color: var(--text-muted);
+      min-height: 44px;
+      overflow: hidden;
     `;
   }
 
   private createLeftSection(): void {
     const leftContainer = this.createElement('div', {
-      cls: 'writerr-toolbar-left'
+      cls: 'writerr-toolbar-left',
+      styles: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '6px',
+        flexShrink: '0'
+      }
     });
 
     // Add document button - using centralized icon system
@@ -75,29 +83,33 @@ export class ChatToolbar extends BaseComponent {
       styles: {
         display: 'flex',
         alignItems: 'center',
-        gap: '8px'  // Reduced gap to make room
+        gap: '6px',
+        flex: '1',
+        justifyContent: 'flex-end',
+        minWidth: '0',
+        overflow: 'hidden'
       }
     });
 
-    // Model dropdown with status indicator
-    this.createModelSelect(rightContainer);
-    
-    // Prompt dropdown
+    // Prompt dropdown FIRST (switched order)
     this.createPromptSelect(rightContainer);
+    
+    // Model dropdown SECOND (switched order) 
+    this.createModelSelect(rightContainer);
     
     // Token counter
     this.createTokenCounter(rightContainer);
-
-    // NO CONTEXT BUTTON HERE - it belongs in the context area header
   }
 
   private createActionButton(parent: HTMLElement, tooltip: string, icon: string, onClick: () => void): void {
     const button = parent.createEl('button', { 
-      cls: 'writerr-toolbar-button',
-      attr: { 'data-tooltip': tooltip }
+      cls: 'writerr-toolbar-button'
     });
     button.innerHTML = icon;
     button.onclick = onClick;
+    
+    // Add unified tooltip
+    this.addTooltip(button, tooltip);
   }
 
 
@@ -106,47 +118,64 @@ export class ChatToolbar extends BaseComponent {
     modelContainer.style.cssText = `
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 4px;
       position: relative;
+      flex-shrink: 1;
+      min-width: 80px;
     `;
 
     // Status indicator dot
     this.statusIndicator = modelContainer.createEl('div', { cls: 'status-indicator' });
     this.updateStatusIndicator();
 
-    // Model select
+    // Model select - more responsive
     this.modelSelect = modelContainer.createEl('select');
     this.modelSelect.style.cssText = `
       border: none !important;
       box-shadow: none !important;
       background: transparent !important;
-      padding: 4px 20px 4px 4px !important;
+      padding: 4px 16px 4px 4px !important;
       margin: 0 !important;
       font-size: 12px;
-      color: var(--text-muted);
+      color: var(--text-faint);
       cursor: pointer;
       outline: none;
       appearance: none;
       -webkit-appearance: none;
       -moz-appearance: none;
-      max-width: 120px;
+      min-width: 0;
+      max-width: 100px;
+      width: 100px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     `;
 
     // Add caret using centralized icon system
     const caret = modelContainer.createEl('div');
-    caret.innerHTML = Icons.chevronDown({ width: 12, height: 12 });
+    caret.innerHTML = Icons.chevronDown({ width: 10, height: 10 });
     caret.style.cssText = `
       pointer-events: none;
-      color: var(--text-muted);
+      color: var(--text-faint);
       position: absolute;
       right: 2px;
       display: flex;
       align-items: center;
+      flex-shrink: 0;
     `;
 
     this.populateModelOptions();
 
-    this.modelSelect.addEventListener('change', () => {
+    // Restore saved selection
+    if (this.plugin.settings.selectedModel) {
+      this.modelSelect.value = this.plugin.settings.selectedModel;
+    }
+
+    this.modelSelect.addEventListener('change', async () => {
+      // Save selection to settings
+      this.plugin.settings.selectedModel = this.modelSelect.value;
+      await this.plugin.saveSettings();
+      
       this.events.onModelChange(this.modelSelect.value);
     });
   }
@@ -156,8 +185,10 @@ export class ChatToolbar extends BaseComponent {
     promptContainer.style.cssText = `
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 4px;
       position: relative;
+      flex-shrink: 1;
+      min-width: 60px;
     `;
 
     this.promptSelect = promptContainer.createEl('select');
@@ -165,33 +196,48 @@ export class ChatToolbar extends BaseComponent {
       border: none !important;
       box-shadow: none !important;
       background: transparent !important;
-      padding: 4px 20px 4px 4px !important;
+      padding: 4px 16px 4px 4px !important;
       margin: 0 !important;
       font-size: 12px;
-      color: var(--text-muted);
+      color: var(--text-faint);
       cursor: pointer;
       outline: none;
       appearance: none;
       -webkit-appearance: none;
       -moz-appearance: none;
-      max-width: 100px;
+      min-width: 0;
+      max-width: 80px;
+      width: 80px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     `;
 
     // Add caret using centralized icon system  
     const caret = promptContainer.createEl('div');
-    caret.innerHTML = Icons.chevronDown({ width: 12, height: 12 });
+    caret.innerHTML = Icons.chevronDown({ width: 10, height: 10 });
     caret.style.cssText = `
       pointer-events: none;
-      color: var(--text-muted);
+      color: var(--text-faint);
       position: absolute;
       right: 2px;
       display: flex;
       align-items: center;
+      flex-shrink: 0;
     `;
 
     this.populatePromptOptions();
 
-    this.promptSelect.addEventListener('change', () => {
+    // Restore saved selection
+    if (this.plugin.settings.selectedPrompt) {
+      this.promptSelect.value = this.plugin.settings.selectedPrompt;
+    }
+
+    this.promptSelect.addEventListener('change', async () => {
+      // Save selection to settings
+      this.plugin.settings.selectedPrompt = this.promptSelect.value;
+      await this.plugin.saveSettings();
+      
       this.events.onPromptChange(this.promptSelect.value);
     });
   }
@@ -256,23 +302,23 @@ export class ChatToolbar extends BaseComponent {
             return;
         }
 
-        // Build hierarchical structure
+        // Build flat hierarchical structure (optgroups cannot be nested)
         for (const [provider, families] of Object.entries(availableProviders)) {
-            const providerGroup = this.modelSelect.createEl('optgroup', { label: provider });
-            
             for (const [family, models] of Object.entries(families)) {
-                const familyGroup = this.modelSelect.createEl('optgroup', { label: `  ${family}` });
+                // Create one optgroup per provider+family combination
+                const groupLabel = `${provider} → ${family}`;
+                const familyGroup = this.modelSelect.createEl('optgroup', { label: groupLabel });
                 
                 (models as string[]).forEach(model => {
                     familyGroup.createEl('option', { 
                       value: `${provider}:${model}`, // Store provider:model for routing
-                      text: `    ${model}` // Display only model name with indent
+                      text: model // Display only model name (clean)
                     });
                 });
             }
         }
 
-        console.log('Successfully populated model dropdown with providers');
+        console.log('Successfully populated model dropdown with provider → family grouping');
 
     } catch (error) {
         console.error('Error populating model options:', error);
@@ -281,7 +327,7 @@ export class ChatToolbar extends BaseComponent {
           text: 'Error loading models' 
         });
     }
-  }
+}
 
   private getAvailableProvidersAndModels(aiProviders: any): Record<string, Record<string, string[]>> {
     try {

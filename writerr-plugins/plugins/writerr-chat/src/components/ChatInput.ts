@@ -26,7 +26,7 @@ export class ChatInput extends BaseComponent {
 
   private createInputContainer(): void {
     this.container.style.cssText = `
-      padding: 16px;
+      padding: 8px;
       background: var(--background-primary);
       position: relative;
     `;
@@ -37,15 +37,15 @@ export class ChatInput extends BaseComponent {
       cls: 'chat-message-input',
       attr: { 
         placeholder: 'Type your message...',
-        rows: '2'
+        rows: '3'
       }
     });
 
     this.messageInput.style.cssText = `
       width: 100%;
-      min-height: 60px;
-      max-height: 160px;
-      padding: 16px 52px 16px 16px;
+      min-height: 80px;
+      max-height: 200px;
+      padding: 12px 52px 12px 12px;
       border: 2px solid var(--background-modifier-border);
       border-radius: 12px;
       background: var(--background-primary);
