@@ -366,10 +366,11 @@ select:hover {
   stroke-width: 2 !important;
 }
 
-/* Chat Control Buttons - Header Icons - REMOVE SETTINGS */
+/* Chat Control Buttons - Header Icons - KEEP DARK */
 .chat-control-button {
   padding: 8px !important;
   border-radius: var(--radius-s) !important;
+  color: var(--text-normal) !important; /* Override subtle gray - keep header icons dark */
 }
 
 .chat-control-button:hover {

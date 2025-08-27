@@ -53,7 +53,7 @@ export class ChatView extends ItemView {
       overflow: hidden;
     `;
 
-    this.createComponents(container);
+    await this.createComponents(container);
     this.setupEventHandlers();
     this.applyTheme();
 
@@ -68,7 +68,7 @@ export class ChatView extends ItemView {
     this.scheduleDelayedInitialization();
   }
 
-  private createComponents(container: HTMLElement): void {
+  private async createComponents(container: HTMLElement): Promise<void> {
     // Create header
     const headerContainer = container.createEl('div', { cls: 'chat-header-container' });
     this.chatHeader = new ChatHeader({
@@ -120,7 +120,7 @@ export class ChatView extends ItemView {
     });
     this.chatInput.render();
 
-    // Create bottom toolbar
+    // Create bottom toolbar - await async prompt loading
     const toolbarContainer = container.createEl('div', { cls: 'chat-toolbar-container' });
     this.chatToolbar = new ChatToolbar({
       plugin: this.plugin,
@@ -133,7 +133,7 @@ export class ChatView extends ItemView {
         onPromptChange: (prompt) => this.handlePromptChange(prompt)
       }
     });
-    this.chatToolbar.render();
+    await this.chatToolbar.render();
   }
 
   private setupEventHandlers(): void {
