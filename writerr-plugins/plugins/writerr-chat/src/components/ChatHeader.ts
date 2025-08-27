@@ -9,8 +9,9 @@ interface ChatHeaderOptions extends ComponentOptions {
 
 export class ChatHeader extends BaseComponent {
   private events: HeaderEvents;
-  private modeSelect: HTMLSelectElement;
+  private modeButton: HTMLElement;
   private statusIndicator: HTMLElement;
+  private currentMode: string = 'chat';
 
   constructor(options: ChatHeaderOptions) {
     super(options);
@@ -21,7 +22,6 @@ export class ChatHeader extends BaseComponent {
     this.createHeader();
     this.createLeftSection();
     this.createRightSection();
-    this.populateModeOptions();
   }
 
   private createHeader(): void {
@@ -39,23 +39,8 @@ export class ChatHeader extends BaseComponent {
   private createLeftSection(): void {
     const leftContainer = this.createElement('div', { cls: 'writerr-chat-header-left' });
 
-    // Create wrapper for select and caret
-    const selectWrapper = leftContainer.createEl('div', { cls: 'writerr-mode-select-wrapper' });
-
-    // Native select dropdown
-    this.modeSelect = selectWrapper.createEl('select', { cls: 'writerr-mode-select' });
-
-    // Add Lucide ChevronDown caret
-    const caret = selectWrapper.createEl('div', { cls: 'writerr-mode-caret' });
-    caret.innerHTML = `
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <polyline points="6,9 12,15 18,9"/>
-      </svg>
-    `;
-
-    this.modeSelect.addEventListener('change', () => {
-      this.events.onModeChange(this.modeSelect.value);
-    });
+    // Create the new WriterMenu mode button (replacing old select)
+    this.createNewModeButton(leftContainer);
   }
 
   private createRightSection(): void {
@@ -151,71 +136,6 @@ export class ChatHeader extends BaseComponent {
     });
   }
 
-  public populateModeOptions(): void {
-    if (!this.modeSelect) return;
-
-    console.log('Populating mode options...', this.modeSelect);
-
-    // Clear existing options
-    this.modeSelect.innerHTML = '';
-
-    // Add Chat mode first (default, bypasses Editorial Engine)
-    this.modeSelect.createEl('option', { 
-      value: 'chat', 
-      text: 'Chat Mode' 
-    });
-
-    // Check if Editorial Engine is available and get enabled modes only
-    if (window.Writerr?.editorial) {
-      try {
-        const modes = window.Writerr.editorial.getEnabledModes();
-        console.log('Editorial Engine enabled modes found:', modes);
-        
-        for (const mode of modes) {
-          this.modeSelect.createEl('option', { 
-            value: mode.id, 
-            text: mode.name 
-          });
-          console.log(`Added mode option: ${mode.name} (${mode.id})`);
-        }
-
-        console.log(`Successfully loaded ${modes.length} enabled Editorial Engine modes to dropdown`);
-        
-        // Force a visual update
-        this.modeSelect.style.display = 'none';
-        this.modeSelect.offsetHeight; // Trigger reflow
-        this.modeSelect.style.display = '';
-        
-      } catch (error) {
-        console.warn('Failed to load Editorial Engine modes:', error);
-        
-        const unavailableOption = this.modeSelect.createEl('option', {
-          value: 'editorial-unavailable',
-          text: 'Editorial Engine Unavailable'
-        });
-        unavailableOption.disabled = true;
-      }
-    } else {
-      console.log('Editorial Engine not available, showing loading state');
-      
-      const loadingOption = this.modeSelect.createEl('option', { 
-        value: 'editorial-loading', 
-        text: 'Editorial Engine Loading...' 
-      });
-      loadingOption.disabled = true;
-
-      // Try to reload modes after a delay
-      setTimeout(() => {
-        console.log('Retrying mode population after delay...');
-        this.populateModeOptions();
-      }, 2000);
-    }
-
-    // Set default mode
-    const defaultMode = this.plugin.settings.defaultMode || 'chat';
-    this.modeSelect.value = defaultMode;
-    console.log(`Set default mode to: ${defaultMode}, current value: ${this.modeSelect.value}`);
-  }
 
   public updateStatusIndicator(): void {
     if (!this.statusIndicator) return;
@@ -256,23 +176,34 @@ export class ChatHeader extends BaseComponent {
     
     // Refresh mode options if Editorial Engine status changed
     if (previousStatus !== status && hasEditorialEngine) {
-      this.populateModeOptions();
+      this.refreshModeOptions();
     }
   }
 
   public getSelectedMode(): string {
-    return this.modeSelect?.value || 'chat';
+    return this.currentMode;
   }
 
   public setMode(mode: string): void {
-    if (this.modeSelect) {
-      this.modeSelect.value = mode;
+    this.currentMode = mode;
+    if (this.modeButton) {
+      const textNode = Array.from(this.modeButton.childNodes).find(node => node.nodeType === Node.TEXT_NODE);
+      if (textNode) {
+        textNode.textContent = this.getCurrentModeDisplayName();
+      }
     }
   }
 
   public refreshModeOptions(): void {
-    this.populateModeOptions();
+    // Update the mode button text with current mode
+    if (this.modeButton) {
+      const textNode = Array.from(this.modeButton.childNodes).find(node => node.nodeType === Node.TEXT_NODE);
+      if (textNode) {
+        textNode.textContent = this.getCurrentModeDisplayName();
+      }
+    }
   }
+
 
   private showHistoryMenu(event: MouseEvent): void {
     const historyMenu = new WriterMenu();
@@ -329,5 +260,128 @@ export class ChatHeader extends BaseComponent {
     if (diffInDays < 7) return `${diffInDays}d`;
     
     return date.toLocaleDateString();
+  }
+
+  private createNewModeButton(parent: HTMLElement): void {
+    const modeButton = parent.createEl('button', { cls: 'writerr-mode-button' });
+    modeButton.textContent = this.getCurrentModeDisplayName();
+    modeButton.style.cssText = `
+      background: transparent;
+      border: none;
+      padding: 4px 8px;
+      color: var(--text-normal);
+      cursor: pointer;
+      font-size: 18px;
+      font-weight: 400;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: color 0.2s ease;
+      min-width: auto;
+      justify-content: flex-start;
+      box-shadow: none;
+    `;
+
+    // Add chevron down icon
+    const chevron = modeButton.createEl('span');
+    chevron.innerHTML = `
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="6,9 12,15 18,9"/>
+      </svg>
+    `;
+
+    modeButton.onclick = (e) => this.showModeMenu(e, modeButton);
+
+    // Store reference for updating (now the main mode selector)
+    this.modeButton = modeButton;
+
+    // Simple hover effect - just color change
+    modeButton.addEventListener('mouseenter', () => {
+      modeButton.style.color = 'var(--text-accent)';
+    });
+
+    modeButton.addEventListener('mouseleave', () => {
+      modeButton.style.color = 'var(--text-normal)';
+    });
+  }
+
+  private getCurrentModeDisplayName(): string {
+    if (this.currentMode === 'chat') {
+      return 'Chat Mode';
+    }
+
+    // Try to get the display name from Editorial Engine
+    if (window.Writerr?.editorial && this.currentMode !== 'editorial-loading' && this.currentMode !== 'editorial-unavailable') {
+      try {
+        const modes = window.Writerr.editorial.getEnabledModes();
+        const mode = modes.find(m => m.id === this.currentMode);
+        return mode?.name || this.currentMode;
+      } catch (error) {
+        console.warn('Failed to get mode display name:', error);
+      }
+    }
+
+    return this.currentMode;
+  }
+
+  private showModeMenu(event: MouseEvent, button: HTMLElement): void {
+    const modeMenu = new WriterMenu();
+
+    // Always add Chat Mode first
+    if (this.currentMode === 'chat') {
+      modeMenu.addCheckedItem('Chat Mode', true, () => {
+        this.selectMode('chat', 'Chat Mode', button);
+      });
+    } else {
+      modeMenu.addItem('Chat Mode', () => {
+        this.selectMode('chat', 'Chat Mode', button);
+      });
+    }
+
+    // Add Editorial Engine modes if available
+    if (window.Writerr?.editorial) {
+      try {
+        const modes = window.Writerr.editorial.getEnabledModes();
+        
+        if (modes.length > 0) {
+          modeMenu.addSeparator();
+          
+          modes.forEach(mode => {
+            if (this.currentMode === mode.id) {
+              modeMenu.addCheckedItem(mode.name, true, () => {
+                this.selectMode(mode.id, mode.name, button);
+              });
+            } else {
+              modeMenu.addItem(mode.name, () => {
+                this.selectMode(mode.id, mode.name, button);
+              });
+            }
+          });
+        }
+      } catch (error) {
+        console.warn('Failed to load Editorial Engine modes for menu:', error);
+        modeMenu.addSeparator();
+        modeMenu.addDisabledItem('Editorial Engine Unavailable');
+      }
+    } else {
+      modeMenu.addSeparator();
+      modeMenu.addDisabledItem('Editorial Engine Loading...');
+    }
+
+    modeMenu.showAtMouseEvent(event);
+  }
+
+  private selectMode(modeId: string, displayName: string, button: HTMLElement): void {
+    // Update current mode
+    this.currentMode = modeId;
+    
+    // Update the button text
+    const textNode = Array.from(button.childNodes).find(node => node.nodeType === Node.TEXT_NODE);
+    if (textNode) {
+      textNode.textContent = displayName;
+    }
+
+    // Trigger the change event
+    this.events.onModeChange(modeId);
   }
 }

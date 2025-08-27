@@ -148,7 +148,7 @@ export class ChatView extends ItemView {
     // Refresh modes after view is fully loaded (in case Editorial Engine loaded after chat view)
     setTimeout(() => {
       console.log('Delayed mode refresh after chat view opened');
-      this.chatHeader.populateModeOptions();
+      this.chatHeader.refreshModeOptions();
     }, 1000);
 
     // Also refresh when status changes

@@ -1065,13 +1065,13 @@ var WriterMenuFactory = class {
 var ChatHeader = class extends BaseComponent {
   constructor(options) {
     super(options);
+    this.currentMode = "chat";
     this.events = options.events;
   }
   render() {
     this.createHeader();
     this.createLeftSection();
     this.createRightSection();
-    this.populateModeOptions();
   }
   createHeader() {
     this.container.style.cssText = `
@@ -1086,17 +1086,7 @@ var ChatHeader = class extends BaseComponent {
   }
   createLeftSection() {
     const leftContainer = this.createElement("div", { cls: "writerr-chat-header-left" });
-    const selectWrapper = leftContainer.createEl("div", { cls: "writerr-mode-select-wrapper" });
-    this.modeSelect = selectWrapper.createEl("select", { cls: "writerr-mode-select" });
-    const caret = selectWrapper.createEl("div", { cls: "writerr-mode-caret" });
-    caret.innerHTML = `
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <polyline points="6,9 12,15 18,9"/>
-      </svg>
-    `;
-    this.modeSelect.addEventListener("change", () => {
-      this.events.onModeChange(this.modeSelect.value);
-    });
+    this.createNewModeButton(leftContainer);
   }
   createRightSection() {
     const rightContainer = this.createElement("div", { cls: "chat-header-controls" });
@@ -1171,55 +1161,6 @@ var ChatHeader = class extends BaseComponent {
       }
     });
   }
-  populateModeOptions() {
-    var _a;
-    if (!this.modeSelect)
-      return;
-    console.log("Populating mode options...", this.modeSelect);
-    this.modeSelect.innerHTML = "";
-    this.modeSelect.createEl("option", {
-      value: "chat",
-      text: "Chat Mode"
-    });
-    if ((_a = window.Writerr) == null ? void 0 : _a.editorial) {
-      try {
-        const modes = window.Writerr.editorial.getEnabledModes();
-        console.log("Editorial Engine enabled modes found:", modes);
-        for (const mode of modes) {
-          this.modeSelect.createEl("option", {
-            value: mode.id,
-            text: mode.name
-          });
-          console.log(`Added mode option: ${mode.name} (${mode.id})`);
-        }
-        console.log(`Successfully loaded ${modes.length} enabled Editorial Engine modes to dropdown`);
-        this.modeSelect.style.display = "none";
-        this.modeSelect.offsetHeight;
-        this.modeSelect.style.display = "";
-      } catch (error) {
-        console.warn("Failed to load Editorial Engine modes:", error);
-        const unavailableOption = this.modeSelect.createEl("option", {
-          value: "editorial-unavailable",
-          text: "Editorial Engine Unavailable"
-        });
-        unavailableOption.disabled = true;
-      }
-    } else {
-      console.log("Editorial Engine not available, showing loading state");
-      const loadingOption = this.modeSelect.createEl("option", {
-        value: "editorial-loading",
-        text: "Editorial Engine Loading..."
-      });
-      loadingOption.disabled = true;
-      setTimeout(() => {
-        console.log("Retrying mode population after delay...");
-        this.populateModeOptions();
-      }, 2e3);
-    }
-    const defaultMode = this.plugin.settings.defaultMode || "chat";
-    this.modeSelect.value = defaultMode;
-    console.log(`Set default mode to: ${defaultMode}, current value: ${this.modeSelect.value}`);
-  }
   updateStatusIndicator() {
     var _a, _b;
     if (!this.statusIndicator)
@@ -1249,20 +1190,28 @@ var ChatHeader = class extends BaseComponent {
     );
     this.statusIndicator.setAttribute("data-status", status);
     if (previousStatus !== status && hasEditorialEngine) {
-      this.populateModeOptions();
+      this.refreshModeOptions();
     }
   }
   getSelectedMode() {
-    var _a;
-    return ((_a = this.modeSelect) == null ? void 0 : _a.value) || "chat";
+    return this.currentMode;
   }
   setMode(mode) {
-    if (this.modeSelect) {
-      this.modeSelect.value = mode;
+    this.currentMode = mode;
+    if (this.modeButton) {
+      const textNode = Array.from(this.modeButton.childNodes).find((node) => node.nodeType === Node.TEXT_NODE);
+      if (textNode) {
+        textNode.textContent = this.getCurrentModeDisplayName();
+      }
     }
   }
   refreshModeOptions() {
-    this.populateModeOptions();
+    if (this.modeButton) {
+      const textNode = Array.from(this.modeButton.childNodes).find((node) => node.nodeType === Node.TEXT_NODE);
+      if (textNode) {
+        textNode.textContent = this.getCurrentModeDisplayName();
+      }
+    }
   }
   showHistoryMenu(event) {
     const historyMenu = new WriterMenu();
@@ -1314,6 +1263,104 @@ var ChatHeader = class extends BaseComponent {
     if (diffInDays < 7)
       return `${diffInDays}d`;
     return date.toLocaleDateString();
+  }
+  createNewModeButton(parent) {
+    const modeButton = parent.createEl("button", { cls: "writerr-mode-button" });
+    modeButton.textContent = this.getCurrentModeDisplayName();
+    modeButton.style.cssText = `
+      background: transparent;
+      border: none;
+      padding: 4px 8px;
+      color: var(--text-normal);
+      cursor: pointer;
+      font-size: 18px;
+      font-weight: 400;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: color 0.2s ease;
+      min-width: auto;
+      justify-content: flex-start;
+      box-shadow: none;
+    `;
+    const chevron = modeButton.createEl("span");
+    chevron.innerHTML = `
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="6,9 12,15 18,9"/>
+      </svg>
+    `;
+    modeButton.onclick = (e) => this.showModeMenu(e, modeButton);
+    this.modeButton = modeButton;
+    modeButton.addEventListener("mouseenter", () => {
+      modeButton.style.color = "var(--text-accent)";
+    });
+    modeButton.addEventListener("mouseleave", () => {
+      modeButton.style.color = "var(--text-normal)";
+    });
+  }
+  getCurrentModeDisplayName() {
+    var _a;
+    if (this.currentMode === "chat") {
+      return "Chat Mode";
+    }
+    if (((_a = window.Writerr) == null ? void 0 : _a.editorial) && this.currentMode !== "editorial-loading" && this.currentMode !== "editorial-unavailable") {
+      try {
+        const modes = window.Writerr.editorial.getEnabledModes();
+        const mode = modes.find((m) => m.id === this.currentMode);
+        return (mode == null ? void 0 : mode.name) || this.currentMode;
+      } catch (error) {
+        console.warn("Failed to get mode display name:", error);
+      }
+    }
+    return this.currentMode;
+  }
+  showModeMenu(event, button) {
+    var _a;
+    const modeMenu = new WriterMenu();
+    if (this.currentMode === "chat") {
+      modeMenu.addCheckedItem("Chat Mode", true, () => {
+        this.selectMode("chat", "Chat Mode", button);
+      });
+    } else {
+      modeMenu.addItem("Chat Mode", () => {
+        this.selectMode("chat", "Chat Mode", button);
+      });
+    }
+    if ((_a = window.Writerr) == null ? void 0 : _a.editorial) {
+      try {
+        const modes = window.Writerr.editorial.getEnabledModes();
+        if (modes.length > 0) {
+          modeMenu.addSeparator();
+          modes.forEach((mode) => {
+            if (this.currentMode === mode.id) {
+              modeMenu.addCheckedItem(mode.name, true, () => {
+                this.selectMode(mode.id, mode.name, button);
+              });
+            } else {
+              modeMenu.addItem(mode.name, () => {
+                this.selectMode(mode.id, mode.name, button);
+              });
+            }
+          });
+        }
+      } catch (error) {
+        console.warn("Failed to load Editorial Engine modes for menu:", error);
+        modeMenu.addSeparator();
+        modeMenu.addDisabledItem("Editorial Engine Unavailable");
+      }
+    } else {
+      modeMenu.addSeparator();
+      modeMenu.addDisabledItem("Editorial Engine Loading...");
+    }
+    modeMenu.showAtMouseEvent(event);
+  }
+  selectMode(modeId, displayName, button) {
+    this.currentMode = modeId;
+    const textNode = Array.from(button.childNodes).find((node) => node.nodeType === Node.TEXT_NODE);
+    if (textNode) {
+      textNode.textContent = displayName;
+    }
+    this.events.onModeChange(modeId);
   }
 };
 
@@ -3348,7 +3395,7 @@ var ChatView = class extends import_obsidian4.ItemView {
   scheduleDelayedInitialization() {
     setTimeout(() => {
       console.log("Delayed mode refresh after chat view opened");
-      this.chatHeader.populateModeOptions();
+      this.chatHeader.refreshModeOptions();
     }, 1e3);
     setTimeout(() => {
       this.chatHeader.updateStatusIndicator();
