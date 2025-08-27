@@ -201,7 +201,7 @@ export class ChatToolbar extends BaseComponent {
     });
     button.innerHTML = icon;
     
-    // Custom click handler that adds current active document to context
+    // Custom click handler that toggles current active document in/out of context
     button.onclick = () => {
       const activeFile = this.plugin.app.workspace.getActiveFile();
       if (!activeFile) return;
@@ -218,9 +218,9 @@ export class ChatToolbar extends BaseComponent {
 
       // Check if document is already in context
       const documentsInContext = contextArea.getDocuments() || [];
-      const isInContext = documentsInContext.some((doc: any) => doc.path === activeFile.path);
+      const existingDoc = documentsInContext.find((doc: any) => doc.path === activeFile.path);
 
-      if (!isInContext) {
+      if (!existingDoc) {
         // Add document to context
         const documentContext = {
           name: activeFile.name,
@@ -228,12 +228,14 @@ export class ChatToolbar extends BaseComponent {
         };
         console.log('ChatToolbar: Adding document to context:', documentContext);
         contextArea.addDocument(documentContext);
-        
-        // Update button state to reflect the change
-        this.updateDocumentButtonState();
       } else {
-        console.log('ChatToolbar: Document already in context:', activeFile.name);
+        // Remove document from context
+        console.log('ChatToolbar: Removing document from context:', activeFile.name);
+        contextArea.removeDocumentByPath(existingDoc);
       }
+      
+      // Update button state to reflect the change
+      this.updateDocumentButtonState();
     };
     
     // Store reference for updates
@@ -250,8 +252,7 @@ export class ChatToolbar extends BaseComponent {
     // Update visual state based on active document
     this.updateDocumentButtonState();
     
-    // Add unified tooltip
-    this.addTooltip(button, tooltip);
+    // Don't add tooltip here - it will be set dynamically in updateDocumentButtonState
   }
 
   private createModelSelect(parent: HTMLElement): void {
@@ -938,7 +939,9 @@ export class ChatToolbar extends BaseComponent {
         color: var(--text-faint) !important;
         opacity: 0.5 !important;
       `;
-      this.documentButton.setAttribute('aria-label', 'No active document to add');
+      // Remove old tooltip and add new one using the same system as other buttons
+      this.documentButton.removeAttribute('title');
+      this.addTooltip(this.documentButton, 'No active document');
       return;
     }
 
@@ -949,20 +952,25 @@ export class ChatToolbar extends BaseComponent {
     const documentsInContext = contextArea?.getDocuments() || [];
     const isInContext = documentsInContext.some((doc: any) => doc.path === activeFile.path);
     
+    const docName = activeFile.basename; // Use basename to remove .md extension
+    
+    // Remove old tooltip first
+    this.documentButton.removeAttribute('title');
+    
     if (isInContext) {
       // Document already in context - HIGHLIGHTED state
       this.documentButton.style.cssText += `
         color: var(--interactive-accent) !important;
         opacity: 1 !important;
       `;
-      this.documentButton.setAttribute('aria-label', `"${activeFile.name}" already in context`);
+      this.addTooltip(this.documentButton, `Remove ${docName} from chat`);
     } else {
       // Active document not in context - NORMAL state (ready to add)
       this.documentButton.style.cssText += `
         color: var(--text-muted) !important;
         opacity: 0.8 !important;
       `;
-      this.documentButton.setAttribute('aria-label', `Add "${activeFile.name}" to context`);
+      this.addTooltip(this.documentButton, `Add ${docName} to chat`);
     }
   }
 

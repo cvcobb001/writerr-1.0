@@ -1533,6 +1533,22 @@ var ContextArea = class extends BaseComponent {
     this.events.onDocumentAdd(doc);
     this.updateClearButtonState();
   }
+  removeDocumentByPath(doc) {
+    const chipElements = Array.from(this.documentsContainer.children).filter((child) => child !== this.clearButton);
+    const chipEl = chipElements.find((chip) => {
+      var _a;
+      const docName = (_a = chip.querySelector("span:nth-child(2)")) == null ? void 0 : _a.textContent;
+      return docName === doc.name;
+    });
+    if (chipEl) {
+      this.removeDocument(doc, chipEl);
+    } else {
+      this.documents = this.documents.filter((d) => d.path !== doc.path);
+      this.updateCountBadge();
+      this.updateClearButtonState();
+      this.events.onDocumentRemove(doc);
+    }
+  }
   createDocumentChip(doc) {
     const docChip = this.documentsContainer.createEl("div", { cls: "context-document-chip" });
     docChip.style.cssText = `
@@ -2361,18 +2377,19 @@ var ChatToolbar = class extends BaseComponent {
         return;
       }
       const documentsInContext = contextArea.getDocuments() || [];
-      const isInContext = documentsInContext.some((doc) => doc.path === activeFile.path);
-      if (!isInContext) {
+      const existingDoc = documentsInContext.find((doc) => doc.path === activeFile.path);
+      if (!existingDoc) {
         const documentContext = {
           name: activeFile.name,
           path: activeFile.path
         };
         console.log("ChatToolbar: Adding document to context:", documentContext);
         contextArea.addDocument(documentContext);
-        this.updateDocumentButtonState();
       } else {
-        console.log("ChatToolbar: Document already in context:", activeFile.name);
+        console.log("ChatToolbar: Removing document from context:", activeFile.name);
+        contextArea.removeDocumentByPath(existingDoc);
       }
+      this.updateDocumentButtonState();
     };
     this.documentButton = button;
     this.plugin.registerEvent(
@@ -2381,7 +2398,6 @@ var ChatToolbar = class extends BaseComponent {
       })
     );
     this.updateDocumentButtonState();
-    this.addTooltip(button, tooltip);
   }
   createModelSelect(parent) {
     const modelButton = parent.createEl("button");
@@ -2913,7 +2929,8 @@ var ChatToolbar = class extends BaseComponent {
         color: var(--text-faint) !important;
         opacity: 0.5 !important;
       `;
-      this.documentButton.setAttribute("aria-label", "No active document to add");
+      this.documentButton.removeAttribute("title");
+      this.addTooltip(this.documentButton, "No active document");
       return;
     }
     const chatLeaf = this.plugin.app.workspace.getLeavesOfType("writerr-chat-view")[0];
@@ -2921,18 +2938,20 @@ var ChatToolbar = class extends BaseComponent {
     const contextArea = chatView == null ? void 0 : chatView.contextArea;
     const documentsInContext = (contextArea == null ? void 0 : contextArea.getDocuments()) || [];
     const isInContext = documentsInContext.some((doc) => doc.path === activeFile.path);
+    const docName = activeFile.basename;
+    this.documentButton.removeAttribute("title");
     if (isInContext) {
       this.documentButton.style.cssText += `
         color: var(--interactive-accent) !important;
         opacity: 1 !important;
       `;
-      this.documentButton.setAttribute("aria-label", `"${activeFile.name}" already in context`);
+      this.addTooltip(this.documentButton, `Remove ${docName} from chat`);
     } else {
       this.documentButton.style.cssText += `
         color: var(--text-muted) !important;
         opacity: 0.8 !important;
       `;
-      this.documentButton.setAttribute("aria-label", `Add "${activeFile.name}" to context`);
+      this.addTooltip(this.documentButton, `Add ${docName} to chat`);
     }
   }
   // Public method for external updates

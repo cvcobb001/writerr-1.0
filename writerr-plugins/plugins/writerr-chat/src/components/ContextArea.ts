@@ -193,6 +193,28 @@ export class ContextArea extends BaseComponent {
     // Removed auto-expand - let user control collapse state manually
   }
 
+  public removeDocumentByPath(doc: DocumentContext): void {
+    // Find the document chip element
+    const chipElements = Array.from(this.documentsContainer.children)
+      .filter(child => child !== this.clearButton) as HTMLElement[];
+    
+    // Find the chip that corresponds to this document
+    const chipEl = chipElements.find(chip => {
+      const docName = chip.querySelector('span:nth-child(2)')?.textContent;
+      return docName === doc.name;
+    });
+    
+    if (chipEl) {
+      this.removeDocument(doc, chipEl);
+    } else {
+      // Fallback: just remove from array if chip not found
+      this.documents = this.documents.filter(d => d.path !== doc.path);
+      this.updateCountBadge();
+      this.updateClearButtonState();
+      this.events.onDocumentRemove(doc);
+    }
+  }
+
   private createDocumentChip(doc: DocumentContext): void {
     const docChip = this.documentsContainer.createEl('div', { cls: 'context-document-chip' });
     docChip.style.cssText = `
