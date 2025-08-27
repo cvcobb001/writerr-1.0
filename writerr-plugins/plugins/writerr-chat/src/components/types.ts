@@ -44,4 +44,6 @@ export interface HeaderEvents {
   onHistoryClick: () => void;
   onSettingsClick: () => void;
   onModeChange: (mode: string) => void;
+  onSessionSelect?: (sessionId: string) => void;
+  onNewSession?: () => void;
 }

@@ -1,6 +1,8 @@
 import { BaseComponent } from './BaseComponent';
 import { ComponentOptions, HeaderEvents } from './types';
 
+import { WriterMenu } from './menus/WriterMenu';
+
 interface ChatHeaderOptions extends ComponentOptions {
   events: HeaderEvents;
 }
@@ -73,7 +75,7 @@ export class ChatHeader extends BaseComponent {
         <path d="M12 7v5l4 2"/>
       </svg>
     `;
-    historyButton.onclick = () => this.events.onHistoryClick();
+    historyButton.onclick = (e) => this.showHistoryMenu(e);
 
     // Add unified tooltip
     this.addTooltip(historyButton, 'Chat History');
@@ -270,5 +272,62 @@ export class ChatHeader extends BaseComponent {
 
   public refreshModeOptions(): void {
     this.populateModeOptions();
+  }
+
+  private showHistoryMenu(event: MouseEvent): void {
+    const historyMenu = new WriterMenu();
+    const sessions = this.plugin.getChatSessions();
+    
+    if (sessions.length === 0) {
+      historyMenu.addDisabledItem('No chat sessions yet');
+      historyMenu.addSeparator();
+      historyMenu.addItem('Start New Session', () => {
+        this.events.onNewSession?.();
+      });
+    } else {
+      // Add current sessions
+      sessions.forEach(session => {
+        const sessionTitle = session.title || `Session ${sessions.indexOf(session) + 1}`;
+        const messageCount = session.messages?.length || 0;
+        const isCurrentSession = this.plugin.currentSession?.id === session.id;
+        
+        // Format: "Session Title • 5 messages"
+        const displayTitle = `${sessionTitle}${messageCount > 0 ? ` • ${messageCount} msg${messageCount !== 1 ? 's' : ''}` : ''}`;
+        
+        if (isCurrentSession) {
+          historyMenu.addCheckedItem(displayTitle, true, () => {
+            // Current session - just close menu
+          });
+        } else {
+          historyMenu.addItem(displayTitle, () => {
+            this.events.onSessionSelect?.(session.id);
+          });
+        }
+      });
+      
+      historyMenu.addSeparator();
+      historyMenu.addItem('New Session', () => {
+        this.events.onNewSession?.();
+      });
+    }
+    
+    historyMenu.showAtMouseEvent(event);
+  }
+
+  private getTimeAgo(date: Date): string {
+    const now = new Date();
+    const diffInMs = now.getTime() - date.getTime();
+    const diffInMinutes = Math.floor(diffInMs / 60000);
+    
+    if (diffInMinutes < 1) return 'now';
+    if (diffInMinutes < 60) return `${diffInMinutes}m`;
+    
+    const diffInHours = Math.floor(diffInMinutes / 60);
+    if (diffInHours < 24) return `${diffInHours}h`;
+    
+    const diffInDays = Math.floor(diffInHours / 24);
+    if (diffInDays < 7) return `${diffInDays}d`;
+    
+    return date.toLocaleDateString();
   }
 }
