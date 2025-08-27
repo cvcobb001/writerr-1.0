@@ -36,7 +36,8 @@ export class ChatToolbar extends BaseComponent {
   private statusIndicator: HTMLElement;
   private modelSelect: HTMLSelectElement;
   private modelButton: HTMLButtonElement;
-  private promptSelect: HTMLSelectElement;
+  private promptButton: HTMLButtonElement;  // NEW: WriterMenu button
+  private availablePrompts: { name: string; path: string }[] = [];  // NEW: Store loaded prompts
   private tokenCounter: HTMLElement;
 
   constructor(options: ChatToolbarOptions) {
@@ -296,8 +297,14 @@ export class ChatToolbar extends BaseComponent {
       min-width: 60px;
     `;
 
-    this.promptSelect = promptContainer.createEl('select');
-    this.promptSelect.style.cssText = `
+    // Create WriterMenu prompt button (replacing old HTML select)
+    this.createPromptMenuButton(promptContainer);
+  }
+
+  private createPromptMenuButton(parent: HTMLElement): void {
+    // Create WriterMenu button with identical styling to old HTML select
+    this.promptButton = parent.createEl('button');
+    this.promptButton.style.cssText = `
       border: none !important;
       box-shadow: none !important;
       background: transparent !important;
@@ -316,10 +323,14 @@ export class ChatToolbar extends BaseComponent {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      text-align: left;
     `;
 
-    // Add caret using centralized icon system  
-    const caret = promptContainer.createEl('div');
+    // Set initial button text (will be updated when prompts load)
+    this.promptButton.textContent = 'Prompts';
+
+    // Add caret for visual consistency
+    const caret = parent.createEl('div');
     caret.innerHTML = Icons.chevronDown({ width: 10, height: 10 });
     caret.style.cssText = `
       pointer-events: none;
@@ -331,21 +342,100 @@ export class ChatToolbar extends BaseComponent {
       flex-shrink: 0;
     `;
 
-    // Populate prompts asynchronously
-    this.populatePromptOptions().then(() => {
-      // Restore saved selection after prompts are loaded
-      if (this.plugin.settings.selectedPrompt) {
-        this.promptSelect.value = this.plugin.settings.selectedPrompt;
-      }
+    // Set up click handler to show WriterMenu
+    this.promptButton.addEventListener('click', (event) => {
+      this.showPromptMenu(event);
     });
 
-    this.promptSelect.addEventListener('change', async () => {
-      // Save selection to settings
-      this.plugin.settings.selectedPrompt = this.promptSelect.value;
-      await this.plugin.saveSettings();
+    // Load prompts for WriterMenu (separate from HTML select)
+    this.loadPromptsForMenu();
+  }
+
+  private showPromptMenu(event: MouseEvent): void {
+    try {
+      if (this.availablePrompts.length === 0) {
+        console.log('WriterMenu: No prompts available');
+        return;
+      }
+
+      console.log(`WriterMenu: Showing menu with ${this.availablePrompts.length} prompts`);
+
+      // Create WriterMenu using the factory method
+      const menu = WriterMenuFactory.createPromptMenu(
+        this.availablePrompts,
+        this.plugin.settings.selectedPrompt,
+        (promptPath: string) => {
+          console.log(`WriterMenu: Selected prompt ${promptPath}`);
+          
+          // Update settings and button text
+          this.plugin.settings.selectedPrompt = promptPath;
+          this.plugin.saveSettings();
+          this.updatePromptButtonText(promptPath);
+          this.events.onPromptChange(promptPath);
+        }
+      );
+
+      menu.showAtMouseEvent(event);
+    } catch (error) {
+      console.error('WriterMenu: Error showing prompt menu:', error);
+    }
+  }
+
+  private updatePromptButtonText(selection: string): void {
+    if (!this.promptButton) return;
+    
+    if (selection) {
+      // Find the prompt name from the path
+      const prompt = this.availablePrompts.find(p => p.path === selection);
+      const displayName = prompt ? prompt.name : selection.split('/').pop()?.replace('.md', '') || 'Prompt';
+      this.promptButton.textContent = displayName;
+    } else {
+      this.promptButton.textContent = 'WriterMenu Prompts';
+    }
+  }
+
+  private async loadPromptsForMenu(): Promise<void> {
+    try {
+      const pluginDir = this.plugin.manifest.dir;
+      const promptsPath = `${pluginDir}/prompts`;
       
-      this.events.onPromptChange(this.promptSelect.value);
-    });
+      console.log(`🔍 WriterMenu: Loading prompts from: ${promptsPath}`);
+      
+      // Use file system adapter (same as existing method)
+      const adapter = this.plugin.app.vault.adapter;
+      const promptsDirExists = await adapter.exists(promptsPath);
+      
+      if (promptsDirExists) {
+        const promptFiles = await adapter.list(promptsPath);
+        
+        if (promptFiles.files && promptFiles.files.length > 0) {
+          const mdFiles = promptFiles.files.filter(file => file.endsWith('.md'));
+          
+          // Build prompts array for WriterMenu
+          this.availablePrompts = [];
+          mdFiles.forEach(filePath => {
+            const fileName = filePath.split('/').pop() || filePath;
+            const baseName = fileName.replace('.md', '');
+            this.availablePrompts.push({ name: baseName, path: filePath });
+          });
+          
+          console.log(`✅ WriterMenu: Loaded ${this.availablePrompts.length} prompts:`, this.availablePrompts);
+          
+          // Update button text if we have a current selection
+          if (this.plugin.settings.selectedPrompt) {
+            this.updatePromptButtonText(this.plugin.settings.selectedPrompt);
+          }
+          return;
+        }
+      }
+      
+      console.log(`❌ WriterMenu: No prompts found at ${promptsPath}`);
+      this.availablePrompts = [];
+      
+    } catch (error) {
+      console.error('❌ WriterMenu: Error loading prompts:', error);
+      this.availablePrompts = [];
+    }
   }
 
   private createTokenCounter(parent: HTMLElement): void {
@@ -473,68 +563,6 @@ export class ChatToolbar extends BaseComponent {
     return families;
   }
 
-  private async populatePromptOptions(): Promise<void> {
-    // Add default option
-    this.promptSelect.createEl('option', { value: '', text: 'Prompts' });
-
-    try {
-      const pluginDir = this.plugin.manifest.dir;
-      const promptsPath = `${pluginDir}/prompts`;
-      
-      console.log(`🔍 Looking for prompts in: ${promptsPath}`);
-      
-      // Try using the file system adapter directly
-      const adapter = this.plugin.app.vault.adapter;
-      console.log(`📂 Vault adapter type:`, adapter.constructor.name);
-      
-      // Check if prompts directory exists using adapter
-      const promptsDirExists = await adapter.exists(promptsPath);
-      console.log(`📂 Prompts directory exists: ${promptsDirExists}`);
-      
-      if (promptsDirExists) {
-        // List files in the prompts directory using adapter
-        const promptFiles = await adapter.list(promptsPath);
-        console.log(`📋 Files in prompts directory:`, promptFiles);
-        
-        if (promptFiles.files && promptFiles.files.length > 0) {
-          const mdFiles = promptFiles.files.filter(file => file.endsWith('.md'));
-          console.log(`📋 MD files found: ${mdFiles.length}`, mdFiles);
-          
-          if (mdFiles.length > 0) {
-            console.log(`✅ Adding ${mdFiles.length} prompts to dropdown`);
-            
-            mdFiles.forEach(filePath => {
-              const fileName = filePath.split('/').pop() || filePath;
-              const baseName = fileName.replace('.md', '');
-              console.log(`   Adding: ${baseName} (${filePath})`);
-              
-              this.promptSelect.createEl('option', { 
-                value: filePath, 
-                text: baseName 
-              });
-            });
-            return;
-          }
-        }
-      }
-      
-      // NO FALLBACK - if it doesn't work, it's broken and should be fixed
-      console.error(`❌ PROMPTS NOT FOUND - Plugin is broken! No prompts directory found at: ${promptsPath}`);
-      
-      // Add a clear error indicator
-      this.promptSelect.createEl('option', { 
-        value: 'ERROR', 
-        text: '⚠️ PROMPTS NOT FOUND' 
-      });
-      
-    } catch (error) {
-      console.error('❌ CRITICAL ERROR loading prompts:', error);
-      this.promptSelect.createEl('option', { 
-        value: 'ERROR', 
-        text: '⚠️ LOAD ERROR' 
-      });
-    }
-  }
 
   public updateStatusIndicator(): void {
     if (!this.statusIndicator) return;
