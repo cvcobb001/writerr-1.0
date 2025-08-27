@@ -37,6 +37,7 @@ export class ChatToolbar extends BaseComponent {
   private modelSelect: HTMLSelectElement;
   private modelButton: HTMLButtonElement;
   private promptButton: HTMLButtonElement;  // NEW: WriterMenu button
+  private documentButton: HTMLButtonElement;  // NEW: Smart document button
   private availablePrompts: { name: string; path: string }[] = [];  // NEW: Store loaded prompts
   private tokenCounter: HTMLElement;
 
@@ -77,8 +78,8 @@ export class ChatToolbar extends BaseComponent {
       }
     });
 
-    // Add document button - using centralized icon system
-    this.createActionButton(leftContainer, 'Add document to chat', 
+    // Smart document button - using centralized icon system
+    this.createSmartDocumentButton(leftContainer, 'Add document to chat', 
       createStyledIcon('filePlus2', 'toolbar'), 
       () => this.events.onAddDocument()
     );
@@ -126,6 +127,23 @@ export class ChatToolbar extends BaseComponent {
     });
     button.innerHTML = icon;
     button.onclick = onClick;
+    
+    // Add unified tooltip
+    this.addTooltip(button, tooltip);
+  }
+
+  private createSmartDocumentButton(parent: HTMLElement, tooltip: string, icon: string, onClick: () => void): void {
+    const button = parent.createEl('button', { 
+      cls: 'writerr-toolbar-button writerr-document-button'
+    });
+    button.innerHTML = icon;
+    button.onclick = onClick;
+    
+    // Store reference for updates
+    this.documentButton = button;
+    
+    // Update visual state based on active document
+    this.updateDocumentButtonState();
     
     // Add unified tooltip
     this.addTooltip(button, tooltip);
@@ -633,5 +651,40 @@ export class ChatToolbar extends BaseComponent {
   public refreshAvailableModels(): void {
     // Called when AI Providers plugin becomes available or providers change
     console.log('Available models refresh requested - using WriterMenu system');
+  }
+
+  private updateDocumentButtonState(): void {
+    if (!this.documentButton) return;
+    
+    // Get active document
+    const activeFile = this.plugin.app.workspace.getActiveFile();
+    
+    // Check if active document is available
+    const hasActiveDocument = activeFile !== null;
+    
+    if (hasActiveDocument) {
+      // Active document available - highlight button
+      this.documentButton.style.cssText += `
+        color: var(--interactive-accent) !important;
+        opacity: 1 !important;
+      `;
+      
+      // Update tooltip
+      this.documentButton.setAttribute('aria-label', `Add "${activeFile?.name || 'active document'}" to chat`);
+    } else {
+      // No active document - gray out button
+      this.documentButton.style.cssText += `
+        color: var(--text-faint) !important;
+        opacity: 0.5 !important;
+      `;
+      
+      // Update tooltip
+      this.documentButton.setAttribute('aria-label', 'No active document to add');
+    }
+  }
+
+  // Public method for external updates
+  public refreshDocumentButton(): void {
+    this.updateDocumentButtonState();
   }
 }

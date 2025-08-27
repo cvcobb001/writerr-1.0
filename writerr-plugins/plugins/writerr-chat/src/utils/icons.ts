@@ -26,6 +26,7 @@ export const ICON_PATHS = {
   // Communication & Actions
   send: ['m22 2-7 20-4-9-9-4z', 'M22 2 11 13'],
   messageCircle: ['M7.9 20A9 9 0 1 0 4 16.1L2 22z'],
+  messageSquare: ['M21 15V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h11l5 3z'],
   bot: ['path d="M12 6V2H8"', 'path d="m8 18-4 4V8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2Z"', 'path d="M2 12h2"', 'path d="M9 11v2"', 'path d="M15 11v2"', 'path d="M20 12h2"'],
   user: ['M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2', 'circle cx="12" cy="7" r="4"'],
   
@@ -46,7 +47,7 @@ export const ICON_PATHS = {
   
   // Information & Actions
   eye: ['path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-3-7-10-7Z"', 'circle cx="12" cy="12" r="3"'],
-  info: ['circle cx="12" cy="12" r="10"', 'path d="M12 16v-4"', 'path d="M12 8h.01"'],
+  info: ['circle cx="12" cy="12" r="10"', 'path d="m12 16v-4"', 'path d="m12 8h.01"'],
   settings: ['circle cx="12" cy="12" r="3"', 'path d="M12 1v6m0 6v6m-3-9h6m-6 6h6'],
   
   // Loading & Status
@@ -59,7 +60,7 @@ export const ICON_PATHS = {
   // Text & Editing
   type: ['polyline points="4,7 4,4 20,4 20,7"', 'line x1="9" y1="20" x2="15" y2="20"', 'line x1="12" y1="4" x2="12" y2="20"'],
   edit3: ['path d="M12 20h9"', 'path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"']
-} as const;;
+} as const;;;
 
 export type IconName = keyof typeof ICON_PATHS;
 
@@ -130,23 +131,23 @@ export function setIconHTML(element: HTMLElement, name: IconName, config: Partia
  * Icon size presets for common use cases
  */
 export const ICON_SIZES = {
-  xs: { width: 12, height: 12 },
-  sm: { width: 14, height: 14 },
-  md: { width: 16, height: 16 },
-  lg: { width: 18, height: 18 },
-  xl: { width: 20, height: 20 }
-} as const;
+  xs: { width: 14, height: 14 },    // Was 12x12
+  sm: { width: 16, height: 16 },    // Was 14x14  
+  md: { width: 20, height: 20 },    // Was 16x16 - for avatars
+  lg: { width: 24, height: 24 },    // Was 18x18
+  xl: { width: 28, height: 28 }     // Was 20x20
+} as const;;
 
 /**
  * Icon style presets
  */
 export const ICON_STYLES = {
   toolbar: { className: 'writerr-toolbar-icon', ...ICON_SIZES.md },
-  action: { className: 'writerr-action-icon', ...ICON_SIZES.sm },
-  context: { className: 'writerr-context-action-icon', ...ICON_SIZES.sm },
+  action: { className: 'writerr-action-icon', ...ICON_SIZES.md },
+  context: { className: 'writerr-context-action-icon', ...ICON_SIZES.md },
   send: { className: 'writerr-send-icon', ...ICON_SIZES.md },
-  message: { className: 'writerr-message-icon', ...ICON_SIZES.lg }
-} as const;
+  message: { className: 'writerr-message-icon', ...ICON_SIZES.xl }
+} as const;;
 
 export type IconStyle = keyof typeof ICON_STYLES;
 

@@ -142,18 +142,16 @@ export class MessageBubble extends BaseComponent {
     }
 
     if (isUser) {
-      // User message actions: ONLY copy and info (NO retry)
+      // User message actions: copy and info (hover-only)
       this.createActionButton('copy', 'Copy message', 
         Icons.copy({ className: 'writerr-action-icon', ...ICON_STYLES.action }), 
         () => this.actionHandler.onCopy(this.message)
       );
 
-      this.createActionButton('info', 'Message info', 
-        Icons.info({ className: 'writerr-action-icon', ...ICON_STYLES.action }), 
-        () => this.actionHandler.onInfo(this.message)
-      );
+      // Info button for user messages - hover-only tooltip with timestamp
+      this.createInfoHoverButton(true);
     } else {
-      // AI message actions: retry, copy, and info
+      // AI message actions: retry, copy, and info (hover-only)
       this.createActionButton('retry', 'Retry this response', 
         Icons.refresh({ className: 'writerr-action-icon', ...ICON_STYLES.action }), 
         () => this.actionHandler.onRetry(this.message)
@@ -164,10 +162,8 @@ export class MessageBubble extends BaseComponent {
         () => this.actionHandler.onCopy(this.message)
       );
 
-      this.createActionButton('info', 'Message info', 
-        Icons.info({ className: 'writerr-action-icon', ...ICON_STYLES.action }), 
-        () => this.actionHandler.onInfo(this.message)
-      );
+      // Info button for AI messages - hover-only tooltip with timestamp and model
+      this.createInfoHoverButton(false);
     }
   }
 
@@ -195,6 +191,52 @@ export class MessageBubble extends BaseComponent {
 
     // Add unified tooltip
     this.addTooltip(btn, tooltip);
+
+    // Force reflow
+    btn.offsetHeight;
+
+    this.addHoverEffect(btn, {
+      'color': 'var(--text-muted)',
+      'opacity': '1'
+    });
+  }
+
+  private createInfoHoverButton(isUser: boolean): void {
+    const btn = this.actionsEl.createEl('button', { cls: `message-action-btn action-info` });
+    btn.innerHTML = Icons.info({ className: 'writerr-action-icon', ...ICON_STYLES.action });
+
+    btn.style.cssText = `
+      background: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
+      padding: 4px !important;
+      border-radius: 4px !important;
+      cursor: default !important;
+      color: var(--text-faint) !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      transition: all 0.2s ease !important;
+      width: 24px !important;
+      height: 24px !important;
+      opacity: 0.6 !important;
+    `;
+
+    // Format timestamp
+    const timestamp = new Date(this.message.timestamp).toLocaleString();
+    
+    // Create tooltip text based on message type
+    let tooltipText = `[${timestamp}]`;
+    if (!isUser) {
+      // For AI messages, add model info if available from metadata
+      const model = this.message.metadata?.selectedModel || 
+                   this.message.metadata?.model || 
+                   'AI Assistant';
+      tooltipText = `[${timestamp}] • [${model}]`;
+    }
+
+    // Add hover-only tooltip (no click handler)
+    this.addTooltip(btn, tooltipText);
 
     // Force reflow
     btn.offsetHeight;

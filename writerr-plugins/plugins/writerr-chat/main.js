@@ -497,6 +497,7 @@ var ICON_PATHS = {
   // Communication & Actions
   send: ["m22 2-7 20-4-9-9-4z", "M22 2 11 13"],
   messageCircle: ["M7.9 20A9 9 0 1 0 4 16.1L2 22z"],
+  messageSquare: ["M21 15V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h11l5 3z"],
   bot: ['path d="M12 6V2H8"', 'path d="m8 18-4 4V8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2Z"', 'path d="M2 12h2"', 'path d="M9 11v2"', 'path d="M15 11v2"', 'path d="M20 12h2"'],
   user: ["M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2", 'circle cx="12" cy="7" r="4"'],
   // File & Document Actions  
@@ -513,7 +514,7 @@ var ICON_PATHS = {
   x: ["M18 6 6 18", "M6 6l12 12"],
   // Information & Actions
   eye: ['path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-3-7-10-7Z"', 'circle cx="12" cy="12" r="3"'],
-  info: ['circle cx="12" cy="12" r="10"', 'path d="M12 16v-4"', 'path d="M12 8h.01"'],
+  info: ['circle cx="12" cy="12" r="10"', 'path d="m12 16v-4"', 'path d="m12 8h.01"'],
   settings: ['circle cx="12" cy="12" r="3"', 'path d="M12 1v6m0 6v6m-3-9h6m-6 6h6'],
   // Loading & Status
   loader: ['path d="M21 12a9 9 0 11-6.219-8.56"'],
@@ -562,18 +563,23 @@ function createIcon(name, config = {}) {
   `.trim();
 }
 var ICON_SIZES = {
-  xs: { width: 12, height: 12 },
-  sm: { width: 14, height: 14 },
-  md: { width: 16, height: 16 },
-  lg: { width: 18, height: 18 },
-  xl: { width: 20, height: 20 }
+  xs: { width: 14, height: 14 },
+  // Was 12x12
+  sm: { width: 16, height: 16 },
+  // Was 14x14  
+  md: { width: 20, height: 20 },
+  // Was 16x16 - for avatars
+  lg: { width: 24, height: 24 },
+  // Was 18x18
+  xl: { width: 28, height: 28 }
+  // Was 20x20
 };
 var ICON_STYLES = {
   toolbar: { className: "writerr-toolbar-icon", ...ICON_SIZES.md },
-  action: { className: "writerr-action-icon", ...ICON_SIZES.sm },
-  context: { className: "writerr-context-action-icon", ...ICON_SIZES.sm },
+  action: { className: "writerr-action-icon", ...ICON_SIZES.md },
+  context: { className: "writerr-context-action-icon", ...ICON_SIZES.md },
   send: { className: "writerr-send-icon", ...ICON_SIZES.md },
-  message: { className: "writerr-message-icon", ...ICON_SIZES.lg }
+  message: { className: "writerr-message-icon", ...ICON_SIZES.xl }
 };
 function createStyledIcon(name, style) {
   return createIcon(name, ICON_STYLES[style]);
@@ -709,12 +715,7 @@ var MessageBubble = class extends BaseComponent {
         Icons.copy({ className: "writerr-action-icon", ...ICON_STYLES.action }),
         () => this.actionHandler.onCopy(this.message)
       );
-      this.createActionButton(
-        "info",
-        "Message info",
-        Icons.info({ className: "writerr-action-icon", ...ICON_STYLES.action }),
-        () => this.actionHandler.onInfo(this.message)
-      );
+      this.createInfoHoverButton(true);
     } else {
       this.createActionButton(
         "retry",
@@ -728,12 +729,7 @@ var MessageBubble = class extends BaseComponent {
         Icons.copy({ className: "writerr-action-icon", ...ICON_STYLES.action }),
         () => this.actionHandler.onCopy(this.message)
       );
-      this.createActionButton(
-        "info",
-        "Message info",
-        Icons.info({ className: "writerr-action-icon", ...ICON_STYLES.action }),
-        () => this.actionHandler.onInfo(this.message)
-      );
+      this.createInfoHoverButton(false);
     }
   }
   createActionButton(type, tooltip, icon, onClick) {
@@ -757,6 +753,39 @@ var MessageBubble = class extends BaseComponent {
       opacity: 0.6 !important;
     `;
     this.addTooltip(btn, tooltip);
+    btn.offsetHeight;
+    this.addHoverEffect(btn, {
+      "color": "var(--text-muted)",
+      "opacity": "1"
+    });
+  }
+  createInfoHoverButton(isUser) {
+    var _a, _b;
+    const btn = this.actionsEl.createEl("button", { cls: `message-action-btn action-info` });
+    btn.innerHTML = Icons.info({ className: "writerr-action-icon", ...ICON_STYLES.action });
+    btn.style.cssText = `
+      background: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
+      padding: 4px !important;
+      border-radius: 4px !important;
+      cursor: default !important;
+      color: var(--text-faint) !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      transition: all 0.2s ease !important;
+      width: 24px !important;
+      height: 24px !important;
+      opacity: 0.6 !important;
+    `;
+    const timestamp = new Date(this.message.timestamp).toLocaleString();
+    let tooltipText = `[${timestamp}]`;
+    if (!isUser) {
+      const model = ((_a = this.message.metadata) == null ? void 0 : _a.selectedModel) || ((_b = this.message.metadata) == null ? void 0 : _b.model) || "AI Assistant";
+      tooltipText = `[${timestamp}] \u2022 [${model}]`;
+    }
+    this.addTooltip(btn, tooltipText);
     btn.offsetHeight;
     this.addHoverEffect(btn, {
       "color": "var(--text-muted)",
@@ -2192,7 +2221,7 @@ var ChatInput = class extends BaseComponent {
 var ChatToolbar = class extends BaseComponent {
   constructor(options) {
     super(options);
-    // NEW: WriterMenu button
+    // NEW: Smart document button
     this.availablePrompts = [];
     this.events = options.events;
   }
@@ -2225,7 +2254,7 @@ var ChatToolbar = class extends BaseComponent {
         flexShrink: "0"
       }
     });
-    this.createActionButton(
+    this.createSmartDocumentButton(
       leftContainer,
       "Add document to chat",
       createStyledIcon("filePlus2", "toolbar"),
@@ -2267,6 +2296,16 @@ var ChatToolbar = class extends BaseComponent {
     });
     button.innerHTML = icon;
     button.onclick = onClick;
+    this.addTooltip(button, tooltip);
+  }
+  createSmartDocumentButton(parent, tooltip, icon, onClick) {
+    const button = parent.createEl("button", {
+      cls: "writerr-toolbar-button writerr-document-button"
+    });
+    button.innerHTML = icon;
+    button.onclick = onClick;
+    this.documentButton = button;
+    this.updateDocumentButtonState();
     this.addTooltip(button, tooltip);
   }
   createModelSelect(parent) {
@@ -2661,6 +2700,29 @@ var ChatToolbar = class extends BaseComponent {
   }
   refreshAvailableModels() {
     console.log("Available models refresh requested - using WriterMenu system");
+  }
+  updateDocumentButtonState() {
+    if (!this.documentButton)
+      return;
+    const activeFile = this.plugin.app.workspace.getActiveFile();
+    const hasActiveDocument = activeFile !== null;
+    if (hasActiveDocument) {
+      this.documentButton.style.cssText += `
+        color: var(--interactive-accent) !important;
+        opacity: 1 !important;
+      `;
+      this.documentButton.setAttribute("aria-label", `Add "${(activeFile == null ? void 0 : activeFile.name) || "active document"}" to chat`);
+    } else {
+      this.documentButton.style.cssText += `
+        color: var(--text-faint) !important;
+        opacity: 0.5 !important;
+      `;
+      this.documentButton.setAttribute("aria-label", "No active document to add");
+    }
+  }
+  // Public method for external updates
+  refreshDocumentButton() {
+    this.updateDocumentButtonState();
   }
 };
 
@@ -3304,7 +3366,7 @@ var ChatView = class extends import_obsidian4.ItemView {
     return "Writerr Chat";
   }
   getIcon() {
-    return "message-circle";
+    return "message-square";
   }
   async onOpen() {
     const container = this.containerEl.children[1];
@@ -3660,7 +3722,7 @@ var WriterrlChatPlugin = class extends import_obsidian5.Plugin {
     this.initializeGlobalAPI();
     this.registerView(VIEW_TYPE_CHAT, (leaf) => new ChatView(leaf, this));
     this.addCommands();
-    this.addRibbonIcon("message-circle", "Open Writerr Chat", () => {
+    this.addRibbonIcon("message-square", "Open Writerr Chat", () => {
       this.openChat();
     });
     this.addSettingTab(new WriterrlChatSettingsTab(this.app, this));

@@ -36,7 +36,7 @@ export class ChatView extends ItemView {
   }
 
   getIcon(): string {
-    return 'message-circle';
+    return 'message-square';
   }
 
   async onOpen() {

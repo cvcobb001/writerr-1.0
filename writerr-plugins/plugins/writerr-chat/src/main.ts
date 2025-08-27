@@ -78,8 +78,8 @@ export default class WriterrlChatPlugin extends Plugin {
     // Add commands
     this.addCommands();
 
-    // Add ribbon icon
-    this.addRibbonIcon('message-circle', 'Open Writerr Chat', () => {
+    // Add ribbon icon - updated to messageSquare for consistency
+    this.addRibbonIcon('message-square', 'Open Writerr Chat', () => {
       this.openChat();
     });
 
