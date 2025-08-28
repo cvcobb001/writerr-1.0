@@ -1506,9 +1506,10 @@ var ContextArea = class extends BaseComponent {
       background: transparent;
       border: none;
       transition: all 0.3s ease;
-      height: ${this.isCollapsed ? "0" : "auto"};
-      overflow: ${this.isCollapsed ? "hidden" : "visible"};
-      opacity: ${this.isCollapsed ? "0" : "1"};
+      height: ${this.isCollapsed || this.documents.length === 0 ? "0" : "auto"};
+      overflow: ${this.isCollapsed || this.documents.length === 0 ? "hidden" : "visible"};
+      opacity: ${this.isCollapsed || this.documents.length === 0 ? "0" : "1"};
+      min-height: ${this.isCollapsed || this.documents.length === 0 ? "0" : "36px"};
     `;
     this.createClearButton(footer);
   }
@@ -1735,16 +1736,29 @@ var ContextArea = class extends BaseComponent {
     if (!this.clearButton)
       return;
     const hasDocuments = this.documents.length > 0;
+    const footer = this.container.querySelector(".context-footer");
     if (hasDocuments) {
       console.log("Enabling clear button");
       this.clearButton.style.opacity = "1";
       this.clearButton.style.cursor = "pointer";
       this.clearButton.style.pointerEvents = "auto";
+      if (footer && !this.isCollapsed) {
+        footer.style.height = "auto";
+        footer.style.minHeight = "36px";
+        footer.style.opacity = "1";
+        footer.style.overflow = "visible";
+      }
     } else {
       console.log("Disabling clear button (gray out)");
       this.clearButton.style.opacity = "0.5";
       this.clearButton.style.cursor = "not-allowed";
       this.clearButton.style.pointerEvents = "none";
+      if (footer) {
+        footer.style.height = "0";
+        footer.style.minHeight = "0";
+        footer.style.opacity = "0";
+        footer.style.overflow = "hidden";
+      }
     }
   }
   toggleCollapse() {
