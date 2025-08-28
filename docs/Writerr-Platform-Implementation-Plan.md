@@ -1435,6 +1435,94 @@ interface NLRuleParser {
 
 ---
 
+## Future Enhancement Opportunities
+
+### Potential Plugin Spinoffs
+
+#### AI Token Analyzer Plugin
+**Status**: Enhancement Opportunity  
+**Origin**: Sophisticated tokenization system developed for Writerr Chat (Task 1.3.1.2)
+
+**Market Potential**:
+- Content creators need accurate token counting for AI interactions
+- Developers require cost estimation for AI model usage
+- Writers want to plan content within token limits
+- Current market tools use basic character/4 estimation
+
+**Technical Assets**:
+- Model-specific tokenizer algorithms (cl100k, p50k, gemini, claude)
+- Smart text analysis (punctuation, word splitting, newline processing)  
+- Dynamic context calculation capabilities
+- Real-time token updates across AI providers
+
+**Potential Features**:
+- Token counts for any selected text in Obsidian
+- Cost estimates across different AI models
+- Content planning within token limits
+- API integration with other AI plugins
+- Token usage analytics and reporting
+
+**Development Effort**: ~2-3 weeks (tokenization logic already modular)
+
+#### Dynamic Token Limit System 
+**Status**: Implementation Ready  
+**Origin**: Token counter showing "unavailable" due to lack of real model data
+
+**Implementation Plan:**
+
+**Phase 1: OpenRouter API Integration (2-3 hours)**
+1. Create `TokenLimitService` class for API management
+2. Implement OpenRouter API fetching (`https://openrouter.ai/api/v1/models`)
+3. Add 24-hour caching system with localStorage persistence
+4. Handle network failures and API errors gracefully
+
+**Phase 2: Model Name Matching (1-2 hours)**
+5. Create model name normalization functions
+6. Map provider-specific names to OpenRouter model IDs
+7. Handle fuzzy matching for similar model names
+8. Support multiple name formats per model
+
+**Phase 3: Integration & Fallback (1 hour)**  
+9. Integrate with existing `getModelTokenLimit()` method
+10. Implement graceful fallback to "unavailable" when no match
+11. Add startup initialization and background refresh
+
+**Phase 4: Real Usage Tracking (2 hours)**
+12. Capture actual token usage from AI responses  
+13. Update counter with real data post-response
+14. Show estimates with tilde (~) vs real data without
+
+**Phase 5: Testing & Polish (1 hour)**
+15. Test with OpenAI, Anthropic, Google models
+16. Verify cache expiration and refresh logic
+17. Remove debug logging and optimize performance
+
+**Technical Implementation:**
+```typescript
+class TokenLimitService {
+  private cache: Map<string, number> = new Map();
+  private cacheExpiry: number = 0;
+  
+  async fetchTokenLimits(): Promise<void> {
+    const response = await fetch('https://openrouter.ai/api/v1/models');
+    const data = await response.json();
+    // Process and cache model limits
+  }
+  
+  getTokenLimit(modelName: string): number | null {
+    return this.cache.get(this.normalizeModelName(modelName)) || null;
+  }
+}
+```
+
+**Expected Outcomes:**
+- Dynamic token limits for 300+ models
+- No hardcoded data (honest "unavailable" when unknown)
+- Real-time usage tracking with estimate→actual progression
+- Automatic updates as new models are released
+
+---
+
 **Next Steps**:
 1. Review and approve implementation plan
 2. Assign development team roles and responsibilities  
