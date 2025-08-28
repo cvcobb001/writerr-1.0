@@ -665,7 +665,7 @@ var MessageBubble = class extends BaseComponent {
       ${isUser ? `
           background: var(--background-primary);
           color: var(--text-normal);
-          border: 2px solid var(--interactive-accent);
+          border: 2px solid var(--background-modifier-border);
           border-bottom-right-radius: 6px;
         ` : `
           background: var(--background-secondary);
@@ -1408,14 +1408,18 @@ var ContextArea = class extends BaseComponent {
     this.createContextArea();
     this.createHeader();
     this.createDocumentsContainer();
+    this.createFooter();
   }
   createContextArea() {
     this.container.style.cssText = `
       transition: all 0.3s ease;
-      overflow: hidden;
+      overflow: visible;
       border-top: 1px solid var(--background-modifier-border);
       margin: 0;
       width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+      position: relative;
     `;
     this.updateContextAreaStyling();
   }
@@ -1474,36 +1478,66 @@ var ContextArea = class extends BaseComponent {
   }
   createDocumentsContainer() {
     this.documentsContainer = this.createElement("div", {
-      cls: "context-documents",
-      styles: {
-        padding: "0 16px 12px 16px",
-        display: "flex",
-        flexWrap: "wrap",
-        gap: "8px",
-        minHeight: "40px",
-        // Minimum height to show clear button
-        transition: "all 0.3s ease",
-        position: "relative",
-        height: this.isCollapsed ? "0" : "auto"
-      }
+      cls: "context-documents"
     });
+    this.documentsContainer.style.cssText = `
+      padding: 0 16px 12px 16px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 180px));
+      gap: 8px;
+      width: 100%;
+      transition: all 0.3s ease;
+      position: relative;
+      height: ${this.isCollapsed ? "0" : "auto"};
+      overflow: ${this.isCollapsed ? "hidden" : "visible"};
+      box-sizing: border-box;
+    `;
     if (this.isCollapsed) {
       this.documentsContainer.style.padding = "0 16px";
     }
-    this.createClearButton();
   }
-  createClearButton() {
-    this.clearButton = this.documentsContainer.createEl("button", { cls: "writerr-context-action" });
+  createFooter() {
+    const footer = this.createElement("div", { cls: "context-footer" });
+    footer.style.cssText = `
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      padding: 8px 16px;
+      background: transparent;
+      border: none;
+      transition: all 0.3s ease;
+      height: ${this.isCollapsed ? "0" : "auto"};
+      overflow: ${this.isCollapsed ? "hidden" : "visible"};
+      opacity: ${this.isCollapsed ? "0" : "1"};
+    `;
+    this.createClearButton(footer);
+  }
+  createClearButton(container) {
+    this.clearButton = container.createEl("button", { cls: "writerr-context-action" });
     this.clearButton.onclick = (e) => {
       e.stopPropagation();
       this.clearAllDocuments();
     };
-    this.clearButton.innerHTML = Icons.paintbrush({
-      className: "writerr-context-action-icon",
-      width: 18,
-      height: 18
-    });
+    this.clearButton.style.cssText = `
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      color: var(--text-muted);
+      padding: 6px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+      width: 28px;
+      height: 28px;
+    `;
+    this.clearButton.innerHTML = Icons.paintbrush({ width: 18, height: 18 });
     this.addTooltip(this.clearButton, "Clear all context");
+    this.addHoverEffect(this.clearButton, {
+      "background-color": "var(--background-modifier-hover)",
+      "color": "var(--text-normal)"
+    });
     this.updateClearButtonState();
   }
   styleActionButton(button) {
@@ -1552,7 +1586,7 @@ var ContextArea = class extends BaseComponent {
   createDocumentChip(doc) {
     const docChip = this.documentsContainer.createEl("div", { cls: "context-document-chip" });
     docChip.style.cssText = `
-      display: inline-flex;
+      display: flex;
       align-items: center;
       gap: 6px;
       padding: 6px 10px;
@@ -1562,9 +1596,11 @@ var ContextArea = class extends BaseComponent {
       font-size: 12px;
       color: var(--text-normal);
       cursor: pointer;
-      max-width: 200px;
       transition: all 0.2s ease;
       animation: slideIn 0.3s ease;
+      box-sizing: border-box;
+      width: 100%;
+      min-height: 32px;
     `;
     const style = document.createElement("style");
     style.textContent = `
@@ -1589,6 +1625,7 @@ var ContextArea = class extends BaseComponent {
       text-overflow: ellipsis;
       white-space: nowrap;
       flex: 1;
+      min-width: 0;
     `;
     const removeBtn = docChip.createEl("button");
     removeBtn.innerHTML = Icons.x({ width: 12, height: 12 });
@@ -1714,24 +1751,31 @@ var ContextArea = class extends BaseComponent {
     console.log("toggleCollapse called, isCollapsed:", this.isCollapsed, "-> will be:", !this.isCollapsed);
     this.isCollapsed = !this.isCollapsed;
     const collapseIcon = this.contextHeader.querySelector(".context-collapse-icon");
+    const footer = this.container.querySelector(".context-footer");
     if (this.isCollapsed) {
-      console.log("Collapsing context area - hiding clear button");
+      console.log("Collapsing context area - hiding footer");
       this.documentsContainer.style.height = "0";
-      this.documentsContainer.style.padding = "0";
+      this.documentsContainer.style.padding = "0 16px";
       this.documentsContainer.style.overflow = "hidden";
       this.documentsContainer.style.opacity = "0";
       collapseIcon.style.transform = "rotate(-90deg)";
-      if (this.clearButton)
-        this.clearButton.style.display = "none";
+      if (footer) {
+        footer.style.height = "0";
+        footer.style.overflow = "hidden";
+        footer.style.opacity = "0";
+      }
     } else {
-      console.log("Expanding context area - showing clear button");
+      console.log("Expanding context area - showing footer");
       this.documentsContainer.style.height = "auto";
       this.documentsContainer.style.padding = "0 16px 12px 16px";
       this.documentsContainer.style.overflow = "visible";
       this.documentsContainer.style.opacity = "1";
       collapseIcon.style.transform = "rotate(0deg)";
-      if (this.clearButton)
-        this.clearButton.style.display = "flex";
+      if (footer) {
+        footer.style.height = "auto";
+        footer.style.overflow = "visible";
+        footer.style.opacity = "1";
+      }
     }
     this.updateContextAreaStyling();
   }

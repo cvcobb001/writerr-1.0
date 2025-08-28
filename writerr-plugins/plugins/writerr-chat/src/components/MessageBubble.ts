@@ -86,7 +86,7 @@ export class MessageBubble extends BaseComponent {
         ? `
           background: var(--background-primary);
           color: var(--text-normal);
-          border: 2px solid var(--interactive-accent);
+          border: 2px solid var(--background-modifier-border);
           border-bottom-right-radius: 6px;
         `
         : `
