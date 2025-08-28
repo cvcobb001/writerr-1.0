@@ -169,6 +169,10 @@ export class ChatView extends ItemView {
     try {
       await this.plugin.sendMessage(message, selectedMode);
       this.refresh();
+      // Update token counter after message is sent
+      if (this.chatToolbar?.updateTokenCounterFromModel) {
+        this.chatToolbar.updateTokenCounterFromModel();
+      }
     } catch (error) {
       console.error('Error sending message:', error);
       new Notice(`Error: ${error.message}`);
@@ -288,12 +292,18 @@ export class ChatView extends ItemView {
 
   private handleDocumentAdd(doc: DocumentContext): void {
     console.log('Document added to context:', doc);
-    // Here you would integrate with the context system
+    // Update token counter when document is added to context
+    if (this.chatToolbar?.updateTokenCounterFromModel) {
+      this.chatToolbar.updateTokenCounterFromModel();
+    }
   }
 
   private handleDocumentRemove(doc: DocumentContext): void {
     console.log('Document removed from context:', doc);
-    // Here you would remove from the context system
+    // Update token counter when document is removed from context
+    if (this.chatToolbar?.updateTokenCounterFromModel) {
+      this.chatToolbar.updateTokenCounterFromModel();
+    }
   }
 
   private async openDocument(doc: DocumentContext): Promise<void> {
@@ -428,6 +438,11 @@ export class ChatView extends ItemView {
     console.log('Prompt template selected:', prompt);
     // Here you would apply the prompt template
     new Notice(`Prompt template: ${prompt}`);
+    
+    // Update token counter after prompt selection
+    if (this.chatToolbar?.updateTokenCounterFromModel) {
+      this.chatToolbar.updateTokenCounterFromModel();
+    }
   }
 
   async onClose() {

@@ -612,9 +612,9 @@ export class ContextArea extends BaseComponent {
           
           console.log(`      📄 Adding file item: ${fileName} -> ${filePath}`);
           
-          fileSubmenu.addItem(fileName, () => {
+          fileSubmenu.addItem(fileName, async () => {
             console.log(`📄 Selected file: ${filePath}`);
-            this.addDocumentFromPath(filePath);
+            await this.addDocumentFromPath(filePath);
           });
         });
       });
@@ -624,7 +624,7 @@ export class ContextArea extends BaseComponent {
     return menu;
   }
 
-  private addDocumentFromPath(filePath: string): void {
+  private async addDocumentFromPath(filePath: string): Promise<void> {
     // Find the TFile object for this path
     const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
     
@@ -633,15 +633,22 @@ export class ContextArea extends BaseComponent {
       return;
     }
 
-    // Create DocumentContext object
-    const doc: DocumentContext = {
-      path: file.path,
-      name: file.name.replace('.md', ''),
-      content: '' // Will be loaded when needed
-    };
+    try {
+      // Read the file content
+      const fileContent = await this.plugin.app.vault.read(file);
+      
+      // Create DocumentContext object with actual content
+      const doc: DocumentContext = {
+        path: file.path,
+        name: file.name.replace('.md', ''),
+        content: fileContent
+      };
 
-    // Add to context using existing method
-    this.addDocument(doc);
+      // Add to context using existing method
+      this.addDocument(doc);
+    } catch (error) {
+      console.error('Failed to read file content:', error);
+    }
   }
 
   private createDocumentPickerContent(modal: HTMLElement, overlay: HTMLElement, styleEl: HTMLStyleElement): void {

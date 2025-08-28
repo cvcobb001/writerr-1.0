@@ -1,0 +1,11 @@
+{
+  "id": "token-count",
+  "name": "Token Count",
+  "version": "1.0.0",
+  "minAppVersion": "0.15.0",
+  "description": "Accurate token counting and model capacity analysis for AI workflows. Provides real-time token analysis with model-specific algorithms and dynamic capacity limits.",
+  "author": "Writerr AI Editorial Platform",
+  "authorUrl": "https://github.com/writerr-platform",
+  "fundingUrl": "https://github.com/writerr-platform/token-count",
+  "isDesktopOnly": false
+}

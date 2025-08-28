@@ -1,0 +1,55 @@
+/* Token Count Plugin Styles */
+
+.token-stat {
+  padding: 8px 0;
+  font-family: var(--font-monospace);
+  color: var(--text-normal);
+}
+
+.token-analysis-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+  font-size: 12px;
+}
+
+.token-analysis-table th,
+.token-analysis-table td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.token-analysis-table th {
+  background: var(--background-secondary);
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.token-analysis-table td {
+  font-family: var(--font-monospace);
+  color: var(--text-muted);
+}
+
+.modal-button-container {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.modal-button-container button {
+  padding: 8px 16px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.modal-button-container button:hover {
+  background: var(--interactive-accent-hover);
+}

@@ -202,7 +202,7 @@ export class ChatToolbar extends BaseComponent {
     button.innerHTML = icon;
     
     // Custom click handler that toggles current active document in/out of context
-    button.onclick = () => {
+    button.onclick = async () => {
       const activeFile = this.plugin.app.workspace.getActiveFile();
       if (!activeFile) return;
 
@@ -222,16 +222,26 @@ export class ChatToolbar extends BaseComponent {
 
       if (!existingDoc) {
         // Add document to context
-        const documentContext = {
-          name: activeFile.name,
-          path: activeFile.path
-        };
-        console.log('ChatToolbar: Adding document to context:', documentContext);
-        contextArea.addDocument(documentContext);
+        try {
+          const fileContent = await this.plugin.app.vault.read(activeFile);
+          const documentContext = {
+            name: activeFile.name,
+            path: activeFile.path,
+            content: fileContent
+          };
+          console.log('ChatToolbar: Adding document to context:', documentContext);
+          contextArea.addDocument(documentContext);
+          // Update token counter after adding document
+          await this.updateTokenCounterFromModel();
+        } catch (error) {
+          console.error('Failed to read file content:', error);
+        }
       } else {
         // Remove document from context
         console.log('ChatToolbar: Removing document from context:', activeFile.name);
         contextArea.removeDocumentByPath(existingDoc);
+        // Update token counter after removing document
+        await this.updateTokenCounterFromModel();
       }
       
       // Update button state to reflect the change
@@ -625,25 +635,26 @@ export class ChatToolbar extends BaseComponent {
 
   private createTokenCounter(parent: HTMLElement): void {
     this.tokenCounter = parent.createEl('span', { cls: 'writerr-token-count' });
-    // Initialize with dynamic model-based calculation
+    // Initialize with dynamic model-based calculation using token-count service
     this.updateTokenCounterFromModel();
   }
 
-  private updateTokenCounterFromModel(): void {
+  public async updateTokenCounterFromModel(): Promise<void> {
     if (!this.tokenCounter) return;
 
     // Always calculate current context usage
-    const contextTokens = this.calculateContextTokens();
+    const contextTokens = await this.calculateContextTokens();
 
     // Get selected model info
     const selectedModel = this.plugin.settings.selectedModel;
+    
     if (!selectedModel || !selectedModel.includes(':')) {
       this.tokenCounter.textContent = `${contextTokens.toLocaleString()} / no model`;
       this.tokenCounter.style.color = 'var(--text-muted)';
       return;
     }
 
-    // Get model token limits from AI Providers
+    // Get model token limits from token-count service
     const [providerId, modelName] = selectedModel.split(':', 2);
     const modelTokenLimit = this.getModelTokenLimit(providerId, modelName);
     
@@ -658,64 +669,28 @@ export class ChatToolbar extends BaseComponent {
   }
 
   private getModelTokenLimit(providerId: string, modelName: string): number | null {
-    try {
-      // Get AI Providers plugin
-      const aiProvidersPlugin = (this.plugin.app as any).plugins?.plugins?.['ai-providers'];
-      if (!aiProvidersPlugin?.aiProviders?.providers) return null;
-
-      // Find the provider
-      const provider = aiProvidersPlugin.aiProviders.providers.find((p: any) => {
-        const pId = p.id || p.name || p.type || 'unknown';
-        return pId === providerId;
-      });
-
-      if (!provider || !provider.models) return null;
-
-      // Find the model and get its token limit
-      const model = provider.models.find((m: any) => {
-        return typeof m === 'string' ? m === modelName : m.name === modelName;
-      });
-
-      if (!model) return null;
-
-      // Extract token limit from model info
-      if (typeof model === 'object' && model.contextLength) {
-        return model.contextLength;
+    // Use token-count service instead of broken AI Providers logic
+    const tokenCountPlugin = this.plugin.app.plugins.plugins['token-count'];
+    if (tokenCountPlugin?.api) {
+      // Try exact model name first
+      let tokenLimit = tokenCountPlugin.api.getTokenLimit(modelName);
+      
+      // If no match, try without provider prefix (e.g., "gpt-4" instead of "openai/gpt-4")
+      if (!tokenLimit && modelName.includes('/')) {
+        const modelOnly = modelName.split('/').pop();
+        tokenLimit = tokenCountPlugin.api.getTokenLimit(modelOnly);
       }
-
-      // Fallback to common model token limits
-      return this.getCommonModelTokenLimit(modelName);
-    } catch (error) {
-      console.warn('Error getting model token limit:', error);
-      return null;
+      
+      return tokenLimit;
     }
+    
+    // Fallback: return null (honest "unavailable")
+    return null;
   }
 
-  private getCommonModelTokenLimit(modelName: string): number {
-    const modelLower = modelName.toLowerCase();
-    
-    // GPT models
-    if (modelLower.includes('gpt-4o')) return 128000;
-    if (modelLower.includes('gpt-4-turbo')) return 128000;
-    if (modelLower.includes('gpt-4')) return 8192;
-    if (modelLower.includes('gpt-3.5-turbo')) return 16385;
-    
-    // Claude models
-    if (modelLower.includes('claude-3-5-sonnet')) return 200000;
-    if (modelLower.includes('claude-3-opus')) return 200000;
-    if (modelLower.includes('claude-3-sonnet')) return 200000;
-    if (modelLower.includes('claude-3-haiku')) return 200000;
-    
-    // Gemini models
-    if (modelLower.includes('gemini-1.5-pro')) return 1000000;
-    if (modelLower.includes('gemini-1.5-flash')) return 1000000;
-    if (modelLower.includes('gemini-pro')) return 32768;
-    
-    // Default fallback
-    return 4096;
-  }
+  // Removed: No hardcoded token limits - only real data or "unavailable"
 
-  private calculateContextTokens(): number {
+  private async calculateContextTokens(): Promise<number> {
     let totalTokens = 0;
     
     try {
@@ -723,29 +698,97 @@ export class ChatToolbar extends BaseComponent {
       const chatLeaf = this.plugin.app.workspace.getLeavesOfType('writerr-chat-view')[0];
       const chatView = chatLeaf?.view;
       
-      if (!chatView) return 0;
-
-      // Count tokens from conversation history
-      const currentSession = this.plugin.currentSession;
-      if (currentSession?.messages) {
-        totalTokens += currentSession.messages.reduce((sum, msg) => {
-          return sum + this.estimateTokens(msg.content);
-        }, 0);
+      if (!chatView) {
+        console.log('🔢 No chat view found');
+        return 0;
       }
 
-      // Count tokens from context documents
-      const contextArea = chatView.contextArea;
-      if (contextArea) {
-        const documents = contextArea.getDocuments();
-        totalTokens += documents.length * 1000; // Rough estimate per document
+      // Get model name for sophisticated tokenization
+      const selectedModel = this.plugin.settings.selectedModel;
+      const [, modelName] = selectedModel?.split(':', 2) || ['', ''];
+      console.log('🔢 Calculating tokens for model:', modelName);
+
+      // Use token-count service for accurate tokenization
+      const tokenCountPlugin = this.plugin.app.plugins.plugins['token-count'];
+      if (tokenCountPlugin?.api) {
+        console.log('🔢 Using token-count service');
+        
+        // Count tokens from conversation history
+        const currentSession = this.plugin.currentSession;
+        if (currentSession?.messages) {
+          console.log('🔢 Processing', currentSession.messages.length, 'messages');
+          for (const msg of currentSession.messages) {
+            const analysis = tokenCountPlugin.api.analyzeText(msg.content, modelName);
+            totalTokens += analysis.tokenCount;
+          }
+        }
+
+        // Count tokens from selected prompt template
+        const selectedPrompt = this.plugin.settings.selectedPrompt;
+        if (selectedPrompt) {
+          console.log('🔢 Selected prompt template:', selectedPrompt);
+          try {
+            // Use the same adapter approach as loadPromptsForMenu()
+            const adapter = this.plugin.app.vault.adapter;
+            const promptContent = await adapter.read(selectedPrompt);
+            console.log('🔢 Prompt content found, length:', promptContent.length);
+            const analysis = tokenCountPlugin.api.analyzeText(promptContent, modelName);
+            console.log('🔢 Prompt tokens:', analysis.tokenCount);
+            totalTokens += analysis.tokenCount;
+          } catch (error) {
+            console.log('🔢 Failed to read prompt file:', error);
+          }
+        }
+
+        // Count tokens from context documents
+        const contextArea = chatView.contextArea;
+        if (contextArea) {
+          const documents = contextArea.getDocuments();
+          console.log('🔢 Processing', documents.length, 'documents');
+          for (const doc of documents) {
+            console.log('🔢 Document:', doc.name, 'content length:', doc.content?.length || 0);
+            // Use sophisticated tokenization instead of rough estimates
+            const analysis = tokenCountPlugin.api.analyzeText(doc.content || '', modelName);
+            console.log('🔢 Document tokens:', analysis.tokenCount);
+            totalTokens += analysis.tokenCount;
+          }
+        }
+
+        // Count tokens from current input
+        const inputArea = chatView.chatInput;
+        if (inputArea && inputArea.getValue) {
+          const currentInput = inputArea.getValue();
+          if (currentInput) {
+            console.log('🔢 Current input length:', currentInput.length);
+            const analysis = tokenCountPlugin.api.analyzeText(currentInput, modelName);
+            console.log('🔢 Input tokens:', analysis.tokenCount);
+            totalTokens += analysis.tokenCount;
+          }
+        }
+      } else {
+        console.log('🔢 Token-count service not available, using fallback');
+        // Fallback: basic estimation if token-count service unavailable
+        const currentSession = this.plugin.currentSession;
+        if (currentSession?.messages) {
+          totalTokens += currentSession.messages.reduce((sum, msg) => {
+            return sum + this.estimateTokens(msg.content);
+          }, 0);
+        }
+
+        const contextArea = chatView.contextArea;
+        if (contextArea) {
+          const documents = contextArea.getDocuments();
+          totalTokens += documents.length * 1000; // Rough estimate per document
+        }
+
+        const inputArea = chatView.chatInput;
+        if (inputArea && inputArea.getValue) {
+          const currentInput = inputArea.getValue();
+          totalTokens += this.estimateTokens(currentInput);
+        }
       }
 
-      // Count tokens from current input
-      const inputArea = chatView.chatInput;
-      if (inputArea && inputArea.getValue) {
-        const currentInput = inputArea.getValue();
-        totalTokens += this.estimateTokens(currentInput);
-      }
+      console.log('🔢 Total context tokens:', totalTokens);
 
     } catch (error) {
       console.warn('Error calculating context tokens:', error);
@@ -756,7 +799,170 @@ export class ChatToolbar extends BaseComponent {
 
   private estimateTokens(text: string): number {
     if (!text) return 0;
-    // Rough estimation: ~4 characters per token for most models
+    
+    // Get current selected model to use appropriate tokenizer
+    const selectedModel = this.plugin.settings.selectedModel;
+    if (!selectedModel || !selectedModel.includes(':')) {
+      return this.fallbackTokenizer(text);
+    }
+
+    const [, modelName] = selectedModel.split(':', 2);
+    return this.calculateTokensForModel(text, modelName);
+  }
+
+  private calculateTokensForModel(text: string, modelName: string): number {
+    // Clean and normalize text
+    const normalizedText = text.trim();
+    if (!normalizedText) return 0;
+
+    // Determine tokenizer type based on model
+    const tokenizerType = this.getTokenizerType(modelName);
+    
+    switch (tokenizerType) {
+      case 'cl100k':
+        return this.cl100kTokenizer(normalizedText);
+      case 'p50k':
+        return this.p50kTokenizer(normalizedText);
+      case 'gemini':
+        return this.geminiTokenizer(normalizedText);
+      case 'claude':
+        return this.claudeTokenizer(normalizedText);
+      default:
+        return this.fallbackTokenizer(normalizedText);
+    }
+  }
+
+  private getTokenizerType(modelName: string): string {
+    // OpenAI GPT-4, GPT-4o, GPT-5, o1, o3, o4 use cl100k_base
+    if (modelName.includes('gpt-4') || modelName.includes('gpt-5') || 
+        modelName.includes('gpt-4o') || modelName.includes('o1') || 
+        modelName.includes('o3') || modelName.includes('o4')) {
+      return 'cl100k';
+    }
+    
+    // OpenAI GPT-3.5 and older use p50k_base
+    if (modelName.includes('gpt-3') || modelName.includes('davinci') || 
+        modelName.includes('babbage') || modelName.includes('curie')) {
+      return 'p50k';
+    }
+    
+    // Google Gemini models
+    if (modelName.includes('gemini') || modelName.includes('models/gemini')) {
+      return 'gemini';
+    }
+    
+    // Anthropic Claude models
+    if (modelName.includes('claude')) {
+      return 'claude';
+    }
+    
+    return 'cl100k'; // Default to most common modern tokenizer
+  }
+
+  private cl100kTokenizer(text: string): number {
+    // cl100k_base tokenizer approximation for GPT-4/GPT-4o/GPT-5/o1/o3/o4
+    // This is more sophisticated than simple character counting
+    
+    // Step 1: Handle special tokens and patterns
+    let tokenCount = 0;
+    
+    // Count newlines (each newline is typically 1 token)
+    const newlines = (text.match(/\n/g) || []).length;
+    tokenCount += newlines;
+    
+    // Remove newlines for further processing
+    let processedText = text.replace(/\n/g, ' ');
+    
+    // Step 2: Split on whitespace and punctuation
+    const words = processedText.split(/\s+/).filter(word => word.length > 0);
+    
+    for (const word of words) {
+      // Handle punctuation-heavy text
+      if (/^[^\w\s]+$/.test(word)) {
+        // Pure punctuation - usually 1 token per character or small group
+        tokenCount += Math.ceil(word.length / 2);
+      } else if (word.length <= 3) {
+        // Short words are typically 1 token
+        tokenCount += 1;
+      } else if (word.length <= 7) {
+        // Medium words are typically 1-2 tokens
+        tokenCount += Math.ceil(word.length / 4);
+      } else {
+        // Long words get split more
+        tokenCount += Math.ceil(word.length / 3.5);
+      }
+    }
+    
+    return Math.max(1, tokenCount);
+  }
+
+  private p50kTokenizer(text: string): number {
+    // p50k_base tokenizer approximation for GPT-3.5 and older
+    // Slightly less efficient than cl100k
+    
+    const words = text.split(/\s+/).filter(word => word.length > 0);
+    let tokenCount = 0;
+    
+    for (const word of words) {
+      if (word.length <= 4) {
+        tokenCount += 1;
+      } else {
+        // p50k is less efficient, so slightly higher token count
+        tokenCount += Math.ceil(word.length / 3.8);
+      }
+    }
+    
+    // Add newline tokens
+    tokenCount += (text.match(/\n/g) || []).length;
+    
+    return Math.max(1, tokenCount);
+  }
+
+  private geminiTokenizer(text: string): number {
+    // Google Gemini tokenizer approximation
+    // Generally more efficient than GPT tokenizers
+    
+    const words = text.split(/\s+/).filter(word => word.length > 0);
+    let tokenCount = 0;
+    
+    for (const word of words) {
+      if (word.length <= 4) {
+        tokenCount += 1;
+      } else {
+        // Gemini is typically more efficient
+        tokenCount += Math.ceil(word.length / 4.2);
+      }
+    }
+    
+    // Handle newlines
+    tokenCount += (text.match(/\n/g) || []).length * 0.8; // Gemini handles newlines more efficiently
+    
+    return Math.max(1, Math.ceil(tokenCount));
+  }
+
+  private claudeTokenizer(text: string): number {
+    // Anthropic Claude tokenizer approximation
+    // Similar efficiency to GPT-4 family
+    
+    const words = text.split(/\s+/).filter(word => word.length > 0);
+    let tokenCount = 0;
+    
+    for (const word of words) {
+      if (word.length <= 3) {
+        tokenCount += 1;
+      } else {
+        tokenCount += Math.ceil(word.length / 3.7);
+      }
+    }
+    
+    // Handle newlines
+    tokenCount += (text.match(/\n/g) || []).length;
+    
+    return Math.max(1, tokenCount);
+  }
+
+  private fallbackTokenizer(text: string): number {
+    // Conservative fallback estimation
     return Math.ceil(text.length / 4);
   }
 
@@ -889,15 +1095,24 @@ export class ChatToolbar extends BaseComponent {
   public updateTokenCounter(used: number, total: number): void {
     if (!this.tokenCounter) return;
 
+    // Show how much context we've loaded vs total capacity
     const percentage = (used / total) * 100;
-    let color = 'var(--text-muted)';
-
-    if (percentage > 90) {
-      color = 'var(--color-red)';
-    } else if (percentage > 70) {
-      color = 'var(--color-orange)';
+    
+    // Dynamic color based on percentage - works for any model capacity
+    let color = 'var(--text-muted)';  // Default: plenty of room
+    
+    if (percentage >= 95) {
+      color = 'var(--color-red)';      // Critical: 95%+ full
+    } else if (percentage >= 85) {
+      color = 'var(--color-orange)';   // Warning: 85%+ full  
+    } else if (percentage >= 70) {
+      color = 'var(--color-yellow)';   // Caution: 70%+ full
+    } else if (percentage >= 50) {
+      color = 'var(--text-normal)';    // Active: 50%+ full
     }
+    // Below 50% stays muted gray
 
+    // Show "used / total" - how much context loaded vs capacity
     this.tokenCounter.textContent = `${used.toLocaleString()} / ${total.toLocaleString()}`;
     this.tokenCounter.style.color = color;
   }

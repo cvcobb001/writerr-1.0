@@ -1904,9 +1904,9 @@ var ContextArea = class extends BaseComponent {
         files.forEach((filePath) => {
           const fileName = filePath.split("/").pop() || filePath;
           console.log(`      \u{1F4C4} Adding file item: ${fileName} -> ${filePath}`);
-          fileSubmenu.addItem(fileName, () => {
+          fileSubmenu.addItem(fileName, async () => {
             console.log(`\u{1F4C4} Selected file: ${filePath}`);
-            this.addDocumentFromPath(filePath);
+            await this.addDocumentFromPath(filePath);
           });
         });
       });
@@ -1914,19 +1914,23 @@ var ContextArea = class extends BaseComponent {
     console.log("\u{1F3A8} Menu creation completed");
     return menu;
   }
-  addDocumentFromPath(filePath) {
+  async addDocumentFromPath(filePath) {
     const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
     if (!file) {
       console.error("File not found:", filePath);
       return;
     }
-    const doc = {
-      path: file.path,
-      name: file.name.replace(".md", ""),
-      content: ""
-      // Will be loaded when needed
-    };
-    this.addDocument(doc);
+    try {
+      const fileContent = await this.plugin.app.vault.read(file);
+      const doc = {
+        path: file.path,
+        name: file.name.replace(".md", ""),
+        content: fileContent
+      };
+      this.addDocument(doc);
+    } catch (error) {
+      console.error("Failed to read file content:", error);
+    }
   }
   createDocumentPickerContent(modal, overlay, styleEl) {
     const header = modal.createEl("div");
@@ -2365,7 +2369,7 @@ var ChatToolbar = class extends BaseComponent {
       cls: "writerr-toolbar-button writerr-document-button"
     });
     button.innerHTML = icon;
-    button.onclick = () => {
+    button.onclick = async () => {
       const activeFile = this.plugin.app.workspace.getActiveFile();
       if (!activeFile)
         return;
@@ -2379,15 +2383,23 @@ var ChatToolbar = class extends BaseComponent {
       const documentsInContext = contextArea.getDocuments() || [];
       const existingDoc = documentsInContext.find((doc) => doc.path === activeFile.path);
       if (!existingDoc) {
-        const documentContext = {
-          name: activeFile.name,
-          path: activeFile.path
-        };
-        console.log("ChatToolbar: Adding document to context:", documentContext);
-        contextArea.addDocument(documentContext);
+        try {
+          const fileContent = await this.plugin.app.vault.read(activeFile);
+          const documentContext = {
+            name: activeFile.name,
+            path: activeFile.path,
+            content: fileContent
+          };
+          console.log("ChatToolbar: Adding document to context:", documentContext);
+          contextArea.addDocument(documentContext);
+          await this.updateTokenCounterFromModel();
+        } catch (error) {
+          console.error("Failed to read file content:", error);
+        }
       } else {
         console.log("ChatToolbar: Removing document from context:", activeFile.name);
         contextArea.removeDocumentByPath(existingDoc);
+        await this.updateTokenCounterFromModel();
       }
       this.updateDocumentButtonState();
     };
@@ -2685,10 +2697,10 @@ var ChatToolbar = class extends BaseComponent {
     this.tokenCounter = parent.createEl("span", { cls: "writerr-token-count" });
     this.updateTokenCounterFromModel();
   }
-  updateTokenCounterFromModel() {
+  async updateTokenCounterFromModel() {
     if (!this.tokenCounter)
       return;
-    const contextTokens = this.calculateContextTokens();
+    const contextTokens = await this.calculateContextTokens();
     const selectedModel = this.plugin.settings.selectedModel;
     if (!selectedModel || !selectedModel.includes(":")) {
       this.tokenCounter.textContent = `${contextTokens.toLocaleString()} / no model`;
@@ -2705,80 +2717,97 @@ var ChatToolbar = class extends BaseComponent {
     this.updateTokenCounter(contextTokens, modelTokenLimit);
   }
   getModelTokenLimit(providerId, modelName) {
-    var _a, _b, _c;
-    try {
-      const aiProvidersPlugin = (_b = (_a = this.plugin.app.plugins) == null ? void 0 : _a.plugins) == null ? void 0 : _b["ai-providers"];
-      if (!((_c = aiProvidersPlugin == null ? void 0 : aiProvidersPlugin.aiProviders) == null ? void 0 : _c.providers))
-        return null;
-      const provider = aiProvidersPlugin.aiProviders.providers.find((p) => {
-        const pId = p.id || p.name || p.type || "unknown";
-        return pId === providerId;
-      });
-      if (!provider || !provider.models)
-        return null;
-      const model = provider.models.find((m) => {
-        return typeof m === "string" ? m === modelName : m.name === modelName;
-      });
-      if (!model)
-        return null;
-      if (typeof model === "object" && model.contextLength) {
-        return model.contextLength;
+    const tokenCountPlugin = this.plugin.app.plugins.plugins["token-count"];
+    if (tokenCountPlugin == null ? void 0 : tokenCountPlugin.api) {
+      let tokenLimit = tokenCountPlugin.api.getTokenLimit(modelName);
+      if (!tokenLimit && modelName.includes("/")) {
+        const modelOnly = modelName.split("/").pop();
+        tokenLimit = tokenCountPlugin.api.getTokenLimit(modelOnly);
       }
-      return this.getCommonModelTokenLimit(modelName);
-    } catch (error) {
-      console.warn("Error getting model token limit:", error);
-      return null;
+      return tokenLimit;
     }
+    return null;
   }
-  getCommonModelTokenLimit(modelName) {
-    const modelLower = modelName.toLowerCase();
-    if (modelLower.includes("gpt-4o"))
-      return 128e3;
-    if (modelLower.includes("gpt-4-turbo"))
-      return 128e3;
-    if (modelLower.includes("gpt-4"))
-      return 8192;
-    if (modelLower.includes("gpt-3.5-turbo"))
-      return 16385;
-    if (modelLower.includes("claude-3-5-sonnet"))
-      return 2e5;
-    if (modelLower.includes("claude-3-opus"))
-      return 2e5;
-    if (modelLower.includes("claude-3-sonnet"))
-      return 2e5;
-    if (modelLower.includes("claude-3-haiku"))
-      return 2e5;
-    if (modelLower.includes("gemini-1.5-pro"))
-      return 1e6;
-    if (modelLower.includes("gemini-1.5-flash"))
-      return 1e6;
-    if (modelLower.includes("gemini-pro"))
-      return 32768;
-    return 4096;
-  }
-  calculateContextTokens() {
+  // Removed: No hardcoded token limits - only real data or "unavailable"
+  async calculateContextTokens() {
+    var _a;
     let totalTokens = 0;
     try {
       const chatLeaf = this.plugin.app.workspace.getLeavesOfType("writerr-chat-view")[0];
       const chatView = chatLeaf == null ? void 0 : chatLeaf.view;
-      if (!chatView)
+      if (!chatView) {
+        console.log("\u{1F522} No chat view found");
         return 0;
-      const currentSession = this.plugin.currentSession;
-      if (currentSession == null ? void 0 : currentSession.messages) {
-        totalTokens += currentSession.messages.reduce((sum, msg) => {
-          return sum + this.estimateTokens(msg.content);
-        }, 0);
       }
-      const contextArea = chatView.contextArea;
-      if (contextArea) {
-        const documents = contextArea.getDocuments();
-        totalTokens += documents.length * 1e3;
+      const selectedModel = this.plugin.settings.selectedModel;
+      const [, modelName] = (selectedModel == null ? void 0 : selectedModel.split(":", 2)) || ["", ""];
+      console.log("\u{1F522} Calculating tokens for model:", modelName);
+      const tokenCountPlugin = this.plugin.app.plugins.plugins["token-count"];
+      if (tokenCountPlugin == null ? void 0 : tokenCountPlugin.api) {
+        console.log("\u{1F522} Using token-count service");
+        const currentSession = this.plugin.currentSession;
+        if (currentSession == null ? void 0 : currentSession.messages) {
+          console.log("\u{1F522} Processing", currentSession.messages.length, "messages");
+          for (const msg of currentSession.messages) {
+            const analysis = tokenCountPlugin.api.analyzeText(msg.content, modelName);
+            totalTokens += analysis.tokenCount;
+          }
+        }
+        const selectedPrompt = this.plugin.settings.selectedPrompt;
+        if (selectedPrompt) {
+          console.log("\u{1F522} Selected prompt template:", selectedPrompt);
+          try {
+            const adapter = this.plugin.app.vault.adapter;
+            const promptContent = await adapter.read(selectedPrompt);
+            console.log("\u{1F522} Prompt content found, length:", promptContent.length);
+            const analysis = tokenCountPlugin.api.analyzeText(promptContent, modelName);
+            console.log("\u{1F522} Prompt tokens:", analysis.tokenCount);
+            totalTokens += analysis.tokenCount;
+          } catch (error) {
+            console.log("\u{1F522} Failed to read prompt file:", error);
+          }
+        }
+        const contextArea = chatView.contextArea;
+        if (contextArea) {
+          const documents = contextArea.getDocuments();
+          console.log("\u{1F522} Processing", documents.length, "documents");
+          for (const doc of documents) {
+            console.log("\u{1F522} Document:", doc.name, "content length:", ((_a = doc.content) == null ? void 0 : _a.length) || 0);
+            const analysis = tokenCountPlugin.api.analyzeText(doc.content || "", modelName);
+            console.log("\u{1F522} Document tokens:", analysis.tokenCount);
+            totalTokens += analysis.tokenCount;
+          }
+        }
+        const inputArea = chatView.chatInput;
+        if (inputArea && inputArea.getValue) {
+          const currentInput = inputArea.getValue();
+          if (currentInput) {
+            console.log("\u{1F522} Current input length:", currentInput.length);
+            const analysis = tokenCountPlugin.api.analyzeText(currentInput, modelName);
+            console.log("\u{1F522} Input tokens:", analysis.tokenCount);
+            totalTokens += analysis.tokenCount;
+          }
+        }
+      } else {
+        console.log("\u{1F522} Token-count service not available, using fallback");
+        const currentSession = this.plugin.currentSession;
+        if (currentSession == null ? void 0 : currentSession.messages) {
+          totalTokens += currentSession.messages.reduce((sum, msg) => {
+            return sum + this.estimateTokens(msg.content);
+          }, 0);
+        }
+        const contextArea = chatView.contextArea;
+        if (contextArea) {
+          const documents = contextArea.getDocuments();
+          totalTokens += documents.length * 1e3;
+        }
+        const inputArea = chatView.chatInput;
+        if (inputArea && inputArea.getValue) {
+          const currentInput = inputArea.getValue();
+          totalTokens += this.estimateTokens(currentInput);
+        }
       }
-      const inputArea = chatView.chatInput;
-      if (inputArea && inputArea.getValue) {
-        const currentInput = inputArea.getValue();
-        totalTokens += this.estimateTokens(currentInput);
-      }
+      console.log("\u{1F522} Total context tokens:", totalTokens);
     } catch (error) {
       console.warn("Error calculating context tokens:", error);
     }
@@ -2787,6 +2816,105 @@ var ChatToolbar = class extends BaseComponent {
   estimateTokens(text) {
     if (!text)
       return 0;
+    const selectedModel = this.plugin.settings.selectedModel;
+    if (!selectedModel || !selectedModel.includes(":")) {
+      return this.fallbackTokenizer(text);
+    }
+    const [, modelName] = selectedModel.split(":", 2);
+    return this.calculateTokensForModel(text, modelName);
+  }
+  calculateTokensForModel(text, modelName) {
+    const normalizedText = text.trim();
+    if (!normalizedText)
+      return 0;
+    const tokenizerType = this.getTokenizerType(modelName);
+    switch (tokenizerType) {
+      case "cl100k":
+        return this.cl100kTokenizer(normalizedText);
+      case "p50k":
+        return this.p50kTokenizer(normalizedText);
+      case "gemini":
+        return this.geminiTokenizer(normalizedText);
+      case "claude":
+        return this.claudeTokenizer(normalizedText);
+      default:
+        return this.fallbackTokenizer(normalizedText);
+    }
+  }
+  getTokenizerType(modelName) {
+    if (modelName.includes("gpt-4") || modelName.includes("gpt-5") || modelName.includes("gpt-4o") || modelName.includes("o1") || modelName.includes("o3") || modelName.includes("o4")) {
+      return "cl100k";
+    }
+    if (modelName.includes("gpt-3") || modelName.includes("davinci") || modelName.includes("babbage") || modelName.includes("curie")) {
+      return "p50k";
+    }
+    if (modelName.includes("gemini") || modelName.includes("models/gemini")) {
+      return "gemini";
+    }
+    if (modelName.includes("claude")) {
+      return "claude";
+    }
+    return "cl100k";
+  }
+  cl100kTokenizer(text) {
+    let tokenCount = 0;
+    const newlines = (text.match(/\n/g) || []).length;
+    tokenCount += newlines;
+    let processedText = text.replace(/\n/g, " ");
+    const words = processedText.split(/\s+/).filter((word) => word.length > 0);
+    for (const word of words) {
+      if (/^[^\w\s]+$/.test(word)) {
+        tokenCount += Math.ceil(word.length / 2);
+      } else if (word.length <= 3) {
+        tokenCount += 1;
+      } else if (word.length <= 7) {
+        tokenCount += Math.ceil(word.length / 4);
+      } else {
+        tokenCount += Math.ceil(word.length / 3.5);
+      }
+    }
+    return Math.max(1, tokenCount);
+  }
+  p50kTokenizer(text) {
+    const words = text.split(/\s+/).filter((word) => word.length > 0);
+    let tokenCount = 0;
+    for (const word of words) {
+      if (word.length <= 4) {
+        tokenCount += 1;
+      } else {
+        tokenCount += Math.ceil(word.length / 3.8);
+      }
+    }
+    tokenCount += (text.match(/\n/g) || []).length;
+    return Math.max(1, tokenCount);
+  }
+  geminiTokenizer(text) {
+    const words = text.split(/\s+/).filter((word) => word.length > 0);
+    let tokenCount = 0;
+    for (const word of words) {
+      if (word.length <= 4) {
+        tokenCount += 1;
+      } else {
+        tokenCount += Math.ceil(word.length / 4.2);
+      }
+    }
+    tokenCount += (text.match(/\n/g) || []).length * 0.8;
+    return Math.max(1, Math.ceil(tokenCount));
+  }
+  claudeTokenizer(text) {
+    const words = text.split(/\s+/).filter((word) => word.length > 0);
+    let tokenCount = 0;
+    for (const word of words) {
+      if (word.length <= 3) {
+        tokenCount += 1;
+      } else {
+        tokenCount += Math.ceil(word.length / 3.7);
+      }
+    }
+    tokenCount += (text.match(/\n/g) || []).length;
+    return Math.max(1, tokenCount);
+  }
+  fallbackTokenizer(text) {
     return Math.ceil(text.length / 4);
   }
   getProviderDisplayName(providerId, provider) {
@@ -2894,10 +3022,14 @@ var ChatToolbar = class extends BaseComponent {
       return;
     const percentage = used / total * 100;
     let color = "var(--text-muted)";
-    if (percentage > 90) {
+    if (percentage >= 95) {
       color = "var(--color-red)";
-    } else if (percentage > 70) {
+    } else if (percentage >= 85) {
       color = "var(--color-orange)";
+    } else if (percentage >= 70) {
+      color = "var(--color-yellow)";
+    } else if (percentage >= 50) {
+      color = "var(--text-normal)";
     }
     this.tokenCounter.textContent = `${used.toLocaleString()} / ${total.toLocaleString()}`;
     this.tokenCounter.style.color = color;
@@ -3698,6 +3830,7 @@ var ChatView = class extends import_obsidian4.ItemView {
     }, 1500);
   }
   async sendMessage(message, mode) {
+    var _a;
     if (!message.trim())
       return;
     const selectedMode = mode || this.chatHeader.getSelectedMode();
@@ -3706,6 +3839,9 @@ var ChatView = class extends import_obsidian4.ItemView {
     try {
       await this.plugin.sendMessage(message, selectedMode);
       this.refresh();
+      if ((_a = this.chatToolbar) == null ? void 0 : _a.updateTokenCounterFromModel) {
+        this.chatToolbar.updateTokenCounterFromModel();
+      }
     } catch (error) {
       console.error("Error sending message:", error);
       new import_obsidian4.Notice(`Error: ${error.message}`);
@@ -3794,10 +3930,18 @@ var ChatView = class extends import_obsidian4.ItemView {
     this.plugin.saveSettings();
   }
   handleDocumentAdd(doc) {
+    var _a;
     console.log("Document added to context:", doc);
+    if ((_a = this.chatToolbar) == null ? void 0 : _a.updateTokenCounterFromModel) {
+      this.chatToolbar.updateTokenCounterFromModel();
+    }
   }
   handleDocumentRemove(doc) {
+    var _a;
     console.log("Document removed from context:", doc);
+    if ((_a = this.chatToolbar) == null ? void 0 : _a.updateTokenCounterFromModel) {
+      this.chatToolbar.updateTokenCounterFromModel();
+    }
   }
   async openDocument(doc) {
     try {
@@ -3903,8 +4047,12 @@ var ChatView = class extends import_obsidian4.ItemView {
     new import_obsidian4.Notice(`Model changed to ${model}`);
   }
   handlePromptChange(prompt) {
+    var _a;
     console.log("Prompt template selected:", prompt);
     new import_obsidian4.Notice(`Prompt template: ${prompt}`);
+    if ((_a = this.chatToolbar) == null ? void 0 : _a.updateTokenCounterFromModel) {
+      this.chatToolbar.updateTokenCounterFromModel();
+    }
   }
   async onClose() {
     var _a, _b, _c, _d, _e;
