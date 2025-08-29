@@ -1,0 +1,37 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "target": "es2018",
+    "lib": ["es2018", "dom"],
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "resolveJsonModule": true,
+    "declaration": false,
+    "outDir": "./dist/test",
+    "rootDir": ".",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"],
+      "shared/*": ["shared/*"]
+    },
+    "types": ["jest", "node", "@types/jest"],
+    "allowJs": true,
+    "checkJs": false
+  },
+  "include": [
+    "plugins/**/__tests__/**/*.test.ts",
+    "plugins/**/__tests__/**/*.spec.ts",
+    "shared/**/*.ts",
+    "jest.setup.js"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build",
+    "plugins/*/main.js"
+  ]
+}

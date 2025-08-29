@@ -98,6 +98,53 @@ export class TrackEditsSettingsTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }));
 
+    // Event Bus Integration section
+    containerEl.createEl('h3', { text: 'Event Bus Integration' });
+
+    new Setting(containerEl)
+      .setName('Enable event bus')
+      .setDesc('Enable cross-plugin coordination through the Writerr event bus')
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.settings.enableEventBus)
+        .onChange(async (value) => {
+          this.plugin.settings.enableEventBus = value;
+          await this.plugin.saveSettings();
+        }));
+
+    new Setting(containerEl)
+      .setName('Event bus debug mode')
+      .setDesc('Enable debug logging for event bus operations')
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.settings.eventBusDebugMode)
+        .onChange(async (value) => {
+          this.plugin.settings.eventBusDebugMode = value;
+          await this.plugin.saveSettings();
+        }));
+
+    new Setting(containerEl)
+      .setName('Max reconnection attempts')
+      .setDesc('Maximum number of reconnection attempts when event bus is unavailable')
+      .addSlider(slider => slider
+        .setLimits(1, 10, 1)
+        .setValue(this.plugin.settings.eventBusMaxReconnectAttempts)
+        .setDynamicTooltip()
+        .onChange(async (value) => {
+          this.plugin.settings.eventBusMaxReconnectAttempts = value;
+          await this.plugin.saveSettings();
+        }));
+
+    new Setting(containerEl)
+      .setName('Reconnection delay')
+      .setDesc('Delay between reconnection attempts (milliseconds)')
+      .addSlider(slider => slider
+        .setLimits(500, 5000, 100)
+        .setValue(this.plugin.settings.eventBusReconnectDelay)
+        .setDynamicTooltip()
+        .onChange(async (value) => {
+          this.plugin.settings.eventBusReconnectDelay = value;
+          await this.plugin.saveSettings();
+        }));
+
     // Actions section
     containerEl.createEl('h3', { text: 'Actions' });
 

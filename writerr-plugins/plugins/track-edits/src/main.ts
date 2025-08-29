@@ -8,8 +8,19 @@ import { EditSidePanelView } from './side-panel-view';
 import { EditClusterManager } from './edit-cluster-manager';
 import { ToggleStateManager } from './ui/ToggleStateManager';
 import { ToggleConfirmationModal } from './components/ToggleConfirmationModal';
-import { EditSession, EditChange, WriterrlGlobalAPI } from '../../../shared/types';
+import { EditSession, EditChange, WriterrlGlobalAPI, AIProcessingContext } from '../../../shared/types';
 import { generateId, debounce } from '../../../shared/utils';
+import { SubmitChangesFromAIResult, SubmitChangesFromAIOptions, EnhancedAIProcessingContext, EditorialOperationType } from './types/submit-changes-from-ai';
+import { AIMetadataValidator } from './validation/ai-metadata-validator';
+import { ChangeBatchManager, BatchManagerFactory } from './change-batch-manager';
+import { PluginRegistry } from './plugin-system/plugin-registry';
+import { PluginSecurityValidator } from './plugin-system/plugin-security-validator';
+import { PluginCapabilityValidator } from './plugin-system/plugin-capability-validator';
+import { IAIProcessingPlugin, PluginRegistrationResult } from './plugin-system/plugin-interface';
+import { EditorialEnginePluginWrapper } from './plugin-system/editorial-engine-plugin';
+import { initializeTrackEditsPluginAPI, cleanupTrackEditsPluginAPI } from './plugin-system/plugin-api';
+import { WriterrlEventBusConnection, EventBusUtils, WriterrlEvent, WriterrlChangeEvent, WriterrlSessionEvent, WriterrlErrorEvent } from './event-bus-integration';
+import { EventPersistenceManager } from './event-persistence-manager';
 
 interface TrackEditsSettings {
   enableTracking: boolean;
@@ -27,6 +38,61 @@ interface TrackEditsSettings {
   aiProvider: string;
   aiModel: string;
   systemPromptPath: string;
+  // Event Bus Integration settings
+  enableEventBus: boolean;
+  eventBusDebugMode: boolean;
+  eventBusMaxReconnectAttempts: number;
+  eventBusReconnectDelay: number;
+}
+
+// AI Processing State Management Interfaces
+interface AIProcessingState {
+  requestId: string;
+  operation: {
+    type: EditorialOperationType;
+    provider: string;
+    model: string;
+    startTime: number;
+  };
+  input: {
+    documentId: string;
+    content: string;
+    userPrompt: string;
+    constraints?: string[];
+  };
+  status: 'preparing' | 'processing' | 'completing' | 'completed' | 'error' | 'cancelled';
+  progress: {
+    percentage: number;
+    stage: string;
+    estimatedTimeRemaining?: number;
+    currentOperation?: string;
+  };
+  sourcePlugin: string;
+  sessionId?: string;
+  errorDetails?: {
+    type: string;
+    message: string;
+    recoverable: boolean;
+  };
+  metrics?: {
+    tokensProcessed: number;
+    responseTime: number;
+    memoryUsage: number;
+  };
+}
+
+interface AIProcessingQueue {
+  active: AIProcessingState[];
+  pending: AIProcessingState[];
+  completed: AIProcessingState[];
+  failed: AIProcessingState[];
+}
+
+interface ProcessingCoordinationConfig {
+  maxConcurrentOperations: number;
+  processingTimeoutMs: number;
+  queueMaxSize: number;
+  enableRealTimeUpdates: boolean;
 }
 
 const DEFAULT_SETTINGS: TrackEditsSettings = {
@@ -44,7 +110,12 @@ const DEFAULT_SETTINGS: TrackEditsSettings = {
   aiAlwaysEnabled: false,
   aiProvider: '',
   aiModel: '',
-  systemPromptPath: 'prompts/system-prompt.md'
+  systemPromptPath: 'prompts/system-prompt.md',
+  // Event Bus Integration defaults
+  enableEventBus: true,
+  eventBusDebugMode: false,
+  eventBusMaxReconnectAttempts: 3,
+  eventBusReconnectDelay: 1000
 };
 
 // Development monitoring - remove before production
@@ -396,8 +467,26 @@ export default class TrackEditsPlugin extends Plugin {
   editTracker: EditTracker;
   editRenderer: EditRenderer;
   clusterManager: EditClusterManager;
+  batchManager: ChangeBatchManager;
   sidePanelView: EditSidePanelView | null = null;
   toggleStateManager: ToggleStateManager | null = null;
+  // Plugin Registration System
+  private pluginRegistry: PluginRegistry | null = null;
+  private eventBusConnection: WriterrlEventBusConnection | null = null;
+  private eventPersistence: EventPersistenceManager | null = null;
+  private workflowOrchestrator: any = null; // WorkflowOrchestrator from event-coordination-patterns
+  
+  // AI Processing State Management
+  private aiProcessingStates: Map<string, AIProcessingState> = new Map();
+  private processingQueue: AIProcessingQueue = {
+    active: [],
+    pending: [],
+    completed: [],
+    failed: []
+  };
+  private processingLocks: Map<string, boolean> = new Map();
+  private securityValidator: PluginSecurityValidator | null = null;
+  private capabilityValidator: PluginCapabilityValidator | null = null;
   currentSession: EditSession | null = null;
   currentEdits: EditChange[] = [];
   private currentEditorView: EditorView | null = null;
@@ -418,6 +507,13 @@ export default class TrackEditsPlugin extends Plugin {
     this.editTracker = new EditTracker(this);
     this.editRenderer = new EditRenderer(this);
     this.clusterManager = new EditClusterManager(this);
+    this.batchManager = new ChangeBatchManager();
+
+    // Initialize plugin system
+    await this.initializePluginSystem();
+
+    // Initialize event bus connection
+    await this.initializeEventBusConnection();
 
     // Initialize toggle state manager
     this.toggleStateManager = new ToggleStateManager(this.app, (enabled) => {
@@ -454,7 +550,7 @@ export default class TrackEditsPlugin extends Plugin {
       this.startTracking();
     }
 
-    console.log('Track Edits v2.0 plugin loaded');
+    console.log('Track Edits v2.0 plugin loaded with Plugin Registration System');
   }
 
   onunload() {
@@ -467,11 +563,1235 @@ export default class TrackEditsPlugin extends Plugin {
         this.toggleStateManager.destroy();
         this.toggleStateManager = null;
       }
+
+      // Clean up event bus connection
+      this.cleanupEventBusConnection();
+
+      // Clean up event persistence
+      if (this.eventPersistence) {
+        // Attempt to sync any final pending events
+        if (this.eventBusConnection?.isConnected()) {
+          this.eventPersistence.syncPendingEvents(this.eventBusConnection)
+            .catch(error => console.warn('[TrackEdits] Final event sync failed:', error));
+        }
+        this.eventPersistence = null;
+      }
       
       console.log('Track Edits plugin unloaded');
     } catch (error) {
       console.error('Track Edits: Error during plugin unload:', error);
     }
+  }
+
+  /**
+   * Initialize the plugin registration system
+   */
+  private async initializePluginSystem(): Promise<void> {
+    try {
+      // Initialize validators
+      this.securityValidator = new PluginSecurityValidator();
+      this.capabilityValidator = new PluginCapabilityValidator();
+
+      // Initialize registry
+      this.pluginRegistry = new PluginRegistry(
+        this,
+        this.securityValidator,
+        this.capabilityValidator
+      );
+
+      // Register Editorial Engine as the first official plugin
+      await this.registerEditorialEnginePlugin();
+
+      console.log('[TrackEditsPlugin] Plugin registration system initialized');
+    } catch (error) {
+      console.error('[TrackEditsPlugin] Failed to initialize plugin system:', error);
+      // Continue without plugin system if initialization fails
+      this.pluginRegistry = null;
+      this.securityValidator = null;
+      this.capabilityValidator = null;
+    }
+  }
+
+  /**
+   * Initialize event bus connection for cross-plugin coordination
+   */
+  private async initializeEventBusConnection(): Promise<void> {
+    try {
+      if (!this.settings.enableEventBus) {
+        console.log('[TrackEditsPlugin] Event bus integration disabled in settings');
+        return;
+      }
+
+      // Initialize event persistence first
+      this.eventPersistence = new EventPersistenceManager();
+      await this.eventPersistence.initialize();
+
+      // Create event bus connection with configuration
+      this.eventBusConnection = new WriterrlEventBusConnection({
+        maxReconnectAttempts: this.settings.eventBusMaxReconnectAttempts,
+        reconnectDelay: this.settings.eventBusReconnectDelay,
+        healthCheckInterval: 30000,
+        enableDebugMode: this.settings.eventBusDebugMode,
+        eventFilters: {
+          sourcePlugins: ['writerr-chat', 'editorial-engine', 'track-edits'],
+          eventTypes: [
+            'change.ai.start', 'change.ai.complete', 'change.ai.error',
+            'session.created', 'session.ended', 'session.paused', 'session.resumed',
+            'document.edit.start', 'document.edit.complete', 'document.focus.changed',
+            'error.plugin.failure', 'error.recovery.attempted'
+          ]
+        }
+      });
+
+      // Connect event persistence to event bus
+      if (this.eventPersistence) {
+        this.eventPersistence.setEventBus(this.eventBusConnection);
+      }
+
+      // Attempt to connect to the event bus
+      const connected = await this.eventBusConnection.connect();
+      
+      if (connected) {
+        // Set up event handlers
+        await this.setupEventBusHandlers();
+        
+        // Sync any pending events from offline periods
+        if (this.eventPersistence) {
+          try {
+            const syncResult = await this.eventPersistence.syncPendingEvents(this.eventBusConnection);
+            if (syncResult.synced > 0) {
+              console.log(`[TrackEditsPlugin] Synced ${syncResult.synced} pending events from offline period`);
+            }
+            if (syncResult.failed > 0) {
+              console.warn(`[TrackEditsPlugin] Failed to sync ${syncResult.failed} events`);
+            }
+          } catch (syncError) {
+            console.warn('[TrackEditsPlugin] Error syncing pending events:', syncError);
+          }
+        }
+        
+        console.log('[TrackEditsPlugin] Event bus integration initialized successfully');
+      } else {
+        console.log('[TrackEditsPlugin] Event bus not available - will retry on demand');
+      }
+    } catch (error) {
+      console.error('[TrackEditsPlugin] Failed to initialize event bus connection:', error);
+      // Continue without event bus if initialization fails
+      this.eventBusConnection = null;
+    }
+  }
+
+  /**
+   * Set up event handlers for cross-plugin coordination
+   */
+  private async setupEventBusHandlers(): Promise<void> {
+    if (!this.eventBusConnection) return;
+
+    try {
+      // Subscribe to Writerr Chat session events for coordination
+      await this.eventBusConnection.subscribe(
+        'session.*',
+        this.handleChatSessionEvent.bind(this),
+        { 
+          filter: (event) => event.sourcePlugin === 'writerr-chat',
+          async: true
+        }
+      );
+
+      // Subscribe to Editorial Engine processing events
+      await this.eventBusConnection.subscribe(
+        'change.*',
+        this.handleEditorialEngineEvent.bind(this),
+        { 
+          filter: (event) => event.sourcePlugin === 'editorial-engine',
+          async: true
+        }
+      );
+
+      // Subscribe to AI processing events for coordination
+      await this.eventBusConnection.subscribe(
+        'ai.processing.start',
+        this.handleAIProcessingStartEvent.bind(this),
+        { async: true }
+      );
+
+      await this.eventBusConnection.subscribe(
+        'ai.processing.progress',
+        this.handleAIProcessingProgressEvent.bind(this),
+        { async: true }
+      );
+
+      await this.eventBusConnection.subscribe(
+        'ai.processing.complete',
+        this.handleAIProcessingCompleteEvent.bind(this),
+        { async: true }
+      );
+
+      await this.eventBusConnection.subscribe(
+        'ai.processing.error',
+        this.handleAIProcessingErrorEvent.bind(this),
+        { async: true }
+      );
+
+      // Subscribe to document focus changes for multi-plugin editing coordination
+      await this.eventBusConnection.subscribe(
+        'document.*',
+        this.handleDocumentEvent.bind(this),
+        { async: true }
+      );
+
+      // Subscribe to error events for platform-wide error handling
+      await this.eventBusConnection.subscribe(
+        'error.*',
+        this.handleErrorEvent.bind(this),
+        { async: true }
+      );
+
+      console.log('[TrackEditsPlugin] Event bus handlers configured with AI processing support');
+    } catch (error) {
+      console.error('[TrackEditsPlugin] Failed to setup event bus handlers:', error);
+    }
+  }
+
+  /**
+   * Handle Writerr Chat session events for coordination
+   */
+  private async handleChatSessionEvent(event: WriterrlEvent): Promise<void> {
+    try {
+      if (this.settings.eventBusDebugMode) {
+        console.log('[TrackEdits EventBus] Chat session event:', event);
+      }
+
+      switch (event.type) {
+        case 'session.created':
+          // Start tracking when chat session begins
+          if (!this.currentSession && this.settings.enableTracking) {
+            console.log('[TrackEdits] Starting tracking in response to chat session');
+            this.startTracking();
+          }
+          break;
+
+        case 'session.ended':
+          // Optionally stop tracking or save session when chat ends
+          if (this.currentSession && this.settings.autoSave) {
+            await this.saveCurrentSession();
+          }
+          break;
+      }
+    } catch (error) {
+      console.error('[TrackEdits EventBus] Error handling chat session event:', error);
+    }
+  }
+
+  /**
+   * Handle Editorial Engine processing events
+   */
+  private async handleEditorialEngineEvent(event: WriterrlEvent): Promise<void> {
+    try {
+      if (this.settings.eventBusDebugMode) {
+        console.log('[TrackEdits EventBus] Editorial Engine event:', event);
+      }
+
+      switch (event.type) {
+        case 'change.ai.start':
+          // Pause edit tracking during AI processing to avoid interference
+          if (this.toggleStateManager && this.toggleStateManager.isTrackingEnabled) {
+            this.isProcessingChange = true;
+            console.log('[TrackEdits] Pausing change detection during Editorial Engine processing');
+          }
+          break;
+
+        case 'change.ai.complete':
+          // Resume edit tracking and sync with Editorial Engine changes
+          this.isProcessingChange = false;
+          const changeEvent = event as WriterrlChangeEvent;
+          
+          // If we have change IDs, try to reconcile with our tracking
+          if (changeEvent.payload.changeIds && this.currentSession) {
+            console.log('[TrackEdits] Syncing with Editorial Engine changes:', changeEvent.payload.changeIds);
+            // Additional sync logic would go here
+          }
+          break;
+
+        case 'change.ai.error':
+          // Resume tracking on error
+          this.isProcessingChange = false;
+          console.log('[TrackEdits] Resuming tracking after Editorial Engine error');
+          break;
+      }
+    } catch (error) {
+      console.error('[TrackEdits EventBus] Error handling Editorial Engine event:', error);
+    }
+  }
+
+  /**
+   * Handle document events for multi-plugin editing coordination
+   */
+  private async handleDocumentEvent(event: WriterrlEvent): Promise<void> {
+    try {
+      if (this.settings.eventBusDebugMode) {
+        console.log('[TrackEdits EventBus] Document event:', event);
+      }
+
+      const docEvent = event as WriterrlDocumentEvent;
+      
+      switch (event.type) {
+        case 'document.focus.changed':
+          // Switch tracking context when document changes
+          if (docEvent.payload.documentPath && docEvent.payload.documentPath !== this.lastActiveFile) {
+            this.lastActiveFile = docEvent.payload.documentPath;
+            
+            // Restart session for new document if tracking is active
+            if (this.currentSession && this.settings.enableTracking) {
+              await this.restartSession();
+            }
+          }
+          break;
+
+        case 'document.save.before':
+          // Save current tracking session before document save
+          if (this.currentSession && this.settings.autoSave) {
+            await this.saveCurrentSession();
+          }
+          break;
+      }
+    } catch (error) {
+      console.error('[TrackEdits EventBus] Error handling document event:', error);
+    }
+  }
+
+  /**
+   * Handle error events for platform-wide error coordination
+   */
+  private async handleErrorEvent(event: WriterrlEvent): Promise<void> {
+    try {
+      if (this.settings.eventBusDebugMode) {
+        console.log('[TrackEdits EventBus] Error event:', event);
+      }
+
+      const errorEvent = event as WriterrlErrorEvent;
+      
+      switch (event.type) {
+        case 'error.plugin.failure':
+          // Handle plugin failures that might affect Track Edits
+          if (errorEvent.payload.affectedFeatures.includes('editing') || 
+              errorEvent.payload.affectedFeatures.includes('tracking')) {
+            
+            if (errorEvent.payload.severity === 'critical') {
+              // Stop tracking on critical errors affecting editing
+              this.stopTracking();
+              console.log('[TrackEdits] Stopped tracking due to critical system error');
+            } else {
+              // For non-critical errors, just log and continue
+              console.warn('[TrackEdits] System error detected, continuing with caution:', errorEvent.payload.errorMessage);
+            }
+          }
+          break;
+
+        case 'error.recovery.attempted':
+          // Monitor recovery attempts and restart tracking if needed
+          if (errorEvent.payload.recoveryAction === 'restart_tracking' && this.settings.enableTracking) {
+            console.log('[TrackEdits] Restarting tracking after error recovery');
+            this.startTracking();
+          }
+          break;
+      }
+    } catch (error) {
+      console.error('[TrackEdits EventBus] Error handling error event:', error);
+    }
+  }
+
+  // AI Processing Event Handlers
+  private async handleAIProcessingStartEvent(event: any): Promise<void> {
+    try {
+      const startEvent = event as any; // Type will be AIProcessingStartEvent
+      const { requestId, operation, input, config, pluginContext } = startEvent.payload;
+
+      console.log(`[TrackEditsPlugin] AI processing started: ${requestId} from ${pluginContext.sourcePluginId}`);
+
+      // Create processing state
+      const processingState: AIProcessingState = {
+        requestId,
+        operation: {
+          type: operation.type,
+          provider: operation.provider,
+          model: operation.model,
+          startTime: Date.now()
+        },
+        input: {
+          documentId: input.documentId,
+          content: input.content,
+          userPrompt: input.userPrompt,
+          constraints: input.constraints
+        },
+        status: 'preparing',
+        progress: {
+          percentage: 0,
+          stage: 'initializing',
+          estimatedTimeRemaining: config.expectedDuration
+        },
+        sourcePlugin: pluginContext.sourcePluginId,
+        sessionId: startEvent.sessionId
+      };
+
+      // Add to processing state management
+      this.aiProcessingStates.set(requestId, processingState);
+      this.processingQueue.active.push(processingState);
+
+      // Prepare Track Edits for incoming changes
+      await this.prepareForAIProcessing(processingState);
+
+      // Update UI to show processing state
+      await this.updateProcessingUI(processingState);
+
+      // Coordinate with session management
+      if (processingState.sessionId) {
+        const session = this.editTracker.getSession(processingState.sessionId);
+        if (session) {
+          // Mark session as having active AI processing
+          session.metadata = {
+            ...session.metadata,
+            activeAIProcessing: requestId,
+            aiProvider: operation.provider,
+            aiModel: operation.model
+          };
+        }
+      }
+
+    } catch (error) {
+      console.error('[TrackEditsPlugin] Error handling AI processing start event:', error);
+      await this.publishErrorEvent('error.ai.processing.handler', {
+        message: 'Failed to handle AI processing start event',
+        error: error.message,
+        context: { eventType: 'ai.processing.start' }
+      });
+    }
+  }
+
+  private async handleAIProcessingProgressEvent(event: any): Promise<void> {
+    try {
+      const progressEvent = event as any; // Type will be AIProcessingProgressEvent
+      const { requestId, progress, partialResults, metrics } = progressEvent.payload;
+
+      const processingState = this.aiProcessingStates.get(requestId);
+      if (!processingState) {
+        console.warn(`[TrackEditsPlugin] Progress event for unknown request: ${requestId}`);
+        return;
+      }
+
+      // Update processing state
+      processingState.status = 'processing';
+      processingState.progress = {
+        percentage: progress.percentage,
+        stage: progress.stage,
+        estimatedTimeRemaining: progress.estimatedTimeRemaining,
+        currentOperation: progress.currentOperation
+      };
+      
+      if (metrics) {
+        processingState.metrics = {
+          tokensProcessed: metrics.tokensProcessed,
+          responseTime: metrics.responseTime,
+          memoryUsage: metrics.memoryUsage
+        };
+      }
+
+      // Update UI with progress
+      await this.updateProcessingProgress(processingState, partialResults);
+
+      // Handle partial results if available
+      if (partialResults?.previewChanges && partialResults.previewChanges.length > 0) {
+        await this.handlePartialResults(processingState, partialResults.previewChanges);
+      }
+
+      console.log(`[TrackEditsPlugin] AI processing progress: ${requestId} - ${progress.percentage}% (${progress.stage})`);
+
+    } catch (error) {
+      console.error('[TrackEditsPlugin] Error handling AI processing progress event:', error);
+    }
+  }
+
+  private async handleAIProcessingCompleteEvent(event: any): Promise<void> {
+    try {
+      const completeEvent = event as any; // Type will be AIProcessingCompleteEvent
+      const { requestId, results, metrics, recommendations } = completeEvent.payload;
+
+      const processingState = this.aiProcessingStates.get(requestId);
+      if (!processingState) {
+        console.warn(`[TrackEditsPlugin] Complete event for unknown request: ${requestId}`);
+        return;
+      }
+
+      // Update processing state
+      processingState.status = 'completed';
+      processingState.progress.percentage = 100;
+      processingState.progress.stage = 'completed';
+      
+      if (metrics) {
+        processingState.metrics = {
+          tokensProcessed: metrics.totalTokens,
+          responseTime: metrics.processingTime,
+          memoryUsage: processingState.metrics?.memoryUsage || 0
+        };
+      }
+
+      // Move from active to completed queue
+      const activeIndex = this.processingQueue.active.findIndex(state => state.requestId === requestId);
+      if (activeIndex !== -1) {
+        this.processingQueue.active.splice(activeIndex, 1);
+        this.processingQueue.completed.push(processingState);
+      }
+
+      // Coordinate change recording
+      await this.coordinateChangeRecording(processingState, results);
+
+      // Update session if applicable
+      if (processingState.sessionId) {
+        const session = this.editTracker.getSession(processingState.sessionId);
+        if (session && session.metadata?.activeAIProcessing === requestId) {
+          delete session.metadata.activeAIProcessing;
+          session.metadata.lastAIOperation = {
+            requestId,
+            completedAt: Date.now(),
+            changeIds: results.changeIds,
+            metrics: processingState.metrics
+          };
+        }
+      }
+
+      // Handle recommendations
+      if (recommendations) {
+        await this.handleProcessingRecommendations(processingState, recommendations);
+      }
+
+      // Update UI to show completion
+      await this.updateProcessingCompletion(processingState, results);
+
+      // Clean up processing locks
+      this.processingLocks.delete(requestId);
+
+      console.log(`[TrackEditsPlugin] AI processing completed: ${requestId} - ${results.changeIds.length} changes`);
+
+    } catch (error) {
+      console.error('[TrackEditsPlugin] Error handling AI processing complete event:', error);
+      await this.publishErrorEvent('error.ai.processing.complete', {
+        message: 'Failed to handle AI processing complete event',
+        error: error.message,
+        context: { requestId: event.payload?.requestId }
+      });
+    }
+  }
+
+  private async handleAIProcessingErrorEvent(event: any): Promise<void> {
+    try {
+      const errorEvent = event as any; // Type will be AIProcessingErrorEvent
+      const { requestId, error, context, recovery } = errorEvent.payload;
+
+      const processingState = this.aiProcessingStates.get(requestId);
+      if (!processingState) {
+        console.warn(`[TrackEditsPlugin] Error event for unknown request: ${requestId}`);
+        return;
+      }
+
+      // Update processing state
+      processingState.status = 'error';
+      processingState.errorDetails = {
+        type: error.type,
+        message: error.message,
+        recoverable: error.recoverability === 'recoverable'
+      };
+
+      // Move from active to failed queue
+      const activeIndex = this.processingQueue.active.findIndex(state => state.requestId === requestId);
+      if (activeIndex !== -1) {
+        this.processingQueue.active.splice(activeIndex, 1);
+        this.processingQueue.failed.push(processingState);
+      }
+
+      // Handle error recovery
+      await this.handleProcessingError(processingState, error, context, recovery);
+
+      // Update session if applicable
+      if (processingState.sessionId) {
+        const session = this.editTracker.getSession(processingState.sessionId);
+        if (session && session.metadata?.activeAIProcessing === requestId) {
+          delete session.metadata.activeAIProcessing;
+          session.metadata.lastAIError = {
+            requestId,
+            errorAt: Date.now(),
+            error: error.message,
+            recoverable: processingState.errorDetails.recoverable
+          };
+        }
+      }
+
+      // Update UI to show error state
+      await this.updateProcessingError(processingState);
+
+      // Clean up processing locks
+      this.processingLocks.delete(requestId);
+
+      console.error(`[TrackEditsPlugin] AI processing failed: ${requestId} - ${error.message}`);
+
+    } catch (handlerError) {
+      console.error('[TrackEditsPlugin] Error handling AI processing error event:', handlerError);
+    }
+  }
+
+  // AI Processing Coordination Methods
+  private async prepareForAIProcessing(processingState: AIProcessingState): Promise<void> {
+    try {
+      // Set processing lock to prevent conflicts
+      this.processingLocks.set(processingState.requestId, true);
+
+      // Prepare batch manager for incoming changes
+      if (this.batchManager) {
+        await this.batchManager.prepareForAIBatch(processingState.requestId, {
+          expectedChanges: processingState.input.content.length > 1000 ? 10 : 5,
+          provider: processingState.operation.provider,
+          model: processingState.operation.model,
+          operationType: processingState.operation.type
+        });
+      }
+
+      // Clear any conflicting decorations
+      if (this.currentEditorView) {
+        this.removeDecorationsFromView(this.currentEditorView);
+      }
+
+      // Notify other systems of preparation
+      console.log(`[TrackEditsPlugin] Prepared for AI processing: ${processingState.requestId}`);
+    } catch (error) {
+      console.error('[TrackEditsPlugin] Error preparing for AI processing:', error);
+      throw error;
+    }
+  }
+
+  private async updateProcessingUI(processingState: AIProcessingState): Promise<void> {
+    try {
+      // Update side panel with processing status
+      if (this.sidePanelView) {
+        this.sidePanelView.updateProcessingStatus({
+          requestId: processingState.requestId,
+          status: processingState.status,
+          progress: processingState.progress,
+          sourcePlugin: processingState.sourcePlugin
+        });
+      }
+
+      // Update ribbon icon to show processing
+      this.updateRibbonIcon();
+
+    } catch (error) {
+      console.error('[TrackEditsPlugin] Error updating processing UI:', error);
+    }
+  }
+
+  private async updateProcessingProgress(processingState: AIProcessingState, partialResults?: any): Promise<void> {
+    try {
+      // Update UI with current progress
+      if (this.sidePanelView) {
+        this.sidePanelView.updateProcessingProgress({
+          requestId: processingState.requestId,
+          progress: processingState.progress,
+          metrics: processingState.metrics,
+          partialResults: partialResults
+        });
+      }
+
+      // Show progress in status bar or notification if significant progress
+      if (processingState.progress.percentage >= 50 && processingState.progress.percentage % 25 === 0) {
+        console.log(`[TrackEditsPlugin] Processing ${processingState.progress.percentage}% complete: ${processingState.progress.stage}`);
+      }
+
+    } catch (error) {
+      console.error('[TrackEditsPlugin] Error updating processing progress:', error);
+    }
+  }
+
+  private async handlePartialResults(processingState: AIProcessingState, previewChanges: any[]): Promise<void> {
+    try {
+      // Show preview of changes in UI without applying them
+      if (this.sidePanelView && previewChanges.length > 0) {
+        this.sidePanelView.showChangePreview({
+          requestId: processingState.requestId,
+          previewChanges: previewChanges,
+          stage: processingState.progress.stage
+        });
+      }
+
+      console.log(`[TrackEditsPlugin] Received ${previewChanges.length} preview changes for ${processingState.requestId}`);
+    } catch (error) {
+      console.error('[TrackEditsPlugin] Error handling partial results:', error);
+    }
+  }
+
+  private async coordinateChangeRecording(processingState: AIProcessingState, results: any): Promise<void> {
+    try {
+      // Record the AI operation in the session
+      if (processingState.sessionId && results.changeIds.length > 0) {
+        const session = this.editTracker.getSession(processingState.sessionId);
+        if (session) {
+          // Create AI processing record
+          const aiProcessingRecord = {
+            requestId: processingState.requestId,
+            operationType: processingState.operation.type,
+            provider: processingState.operation.provider,
+            model: processingState.operation.model,
+            changeIds: results.changeIds,
+            confidence: results.confidence,
+            appliedConstraints: results.appliedConstraints,
+            processingTime: processingState.metrics?.responseTime || 0,
+            completedAt: Date.now()
+          };
+
+          // Add to session metadata
+          session.metadata = {
+            ...session.metadata,
+            aiProcessingHistory: [
+              ...(session.metadata?.aiProcessingHistory || []),
+              aiProcessingRecord
+            ]
+          };
+        }
+      }
+
+      // Handle change grouping if specified
+      if (results.changeGroupId && this.batchManager) {
+        await this.batchManager.finalizeAIBatch(processingState.requestId, {
+          changeGroupId: results.changeGroupId,
+          changeIds: results.changeIds,
+          confidence: results.confidence
+        });
+      }
+
+      console.log(`[TrackEditsPlugin] Coordinated recording of ${results.changeIds.length} changes for ${processingState.requestId}`);
+    } catch (error) {
+      console.error('[TrackEditsPlugin] Error coordinating change recording:', error);
+      throw error;
+    }
+  }
+
+  private async handleProcessingRecommendations(processingState: AIProcessingState, recommendations: any): Promise<void> {
+    try {
+      // Handle review recommendations
+      if (recommendations.suggestedReview && this.sidePanelView) {
+        this.sidePanelView.highlightForReview({
+          requestId: processingState.requestId,
+          reason: 'AI processing recommends review',
+          priority: 'medium'
+        });
+      }
+
+      // Handle batching recommendations
+      if (recommendations.recommendedBatching && this.batchManager) {
+        await this.batchManager.applyBatchingRecommendation(
+          processingState.requestId,
+          recommendations.recommendedBatching
+        );
+      }
+
+      // Handle follow-up actions
+      if (recommendations.followupActions && recommendations.followupActions.length > 0) {
+        console.log(`[TrackEditsPlugin] Follow-up actions recommended for ${processingState.requestId}:`, recommendations.followupActions);
+      }
+
+    } catch (error) {
+      console.error('[TrackEditsPlugin] Error handling processing recommendations:', error);
+    }
+  }
+
+  private async updateProcessingCompletion(processingState: AIProcessingState, results: any): Promise<void> {
+    try {
+      // Update UI to show completion
+      if (this.sidePanelView) {
+        this.sidePanelView.updateProcessingCompletion({
+          requestId: processingState.requestId,
+          results: results,
+          metrics: processingState.metrics,
+          duration: Date.now() - processingState.operation.startTime
+        });
+      }
+
+      // Update ribbon icon back to normal
+      this.updateRibbonIcon();
+
+      // Show completion notification if significant operation
+      if (results.changeIds.length > 5) {
+        console.log(`[TrackEditsPlugin] AI processing completed: ${results.changeIds.length} changes applied with ${results.confidence}% confidence`);
+      }
+
+    } catch (error) {
+      console.error('[TrackEditsPlugin] Error updating processing completion:', error);
+    }
+  }
+
+  private async handleProcessingError(processingState: AIProcessingState, error: any, context: any, recovery: any): Promise<void> {
+    try {
+      // Handle recoverable errors
+      if (error.recoverability === 'recoverable' && recovery.automaticRetryAvailable) {
+        console.log(`[TrackEditsPlugin] Recoverable error for ${processingState.requestId}, retry may be available`);
+        
+        // Mark for potential retry (don't automatically retry from Track Edits)
+        processingState.status = 'preparing';
+        return;
+      }
+
+      // Handle non-recoverable errors
+      if (recovery.manualInterventionRequired) {
+        console.error(`[TrackEditsPlugin] Manual intervention required for ${processingState.requestId}: ${error.message}`);
+        
+        // Notify user of manual intervention need
+        if (this.sidePanelView) {
+          this.sidePanelView.showManualInterventionRequired({
+            requestId: processingState.requestId,
+            error: error.message,
+            suggestedActions: recovery.suggestedActions
+          });
+        }
+      }
+
+      // Clean up any partial state
+      if (context.partialResults && this.batchManager) {
+        await this.batchManager.cleanupFailedBatch(processingState.requestId);
+      }
+
+      // Record error for debugging
+      console.error(`[TrackEditsPlugin] Processing error handled for ${processingState.requestId}:`, {
+        error: error.message,
+        stage: context.stage,
+        recoverable: error.recoverability === 'recoverable'
+      });
+
+    } catch (handlerError) {
+      console.error('[TrackEditsPlugin] Error handling processing error:', handlerError);
+    }
+  }
+
+  private async updateProcessingError(processingState: AIProcessingState): Promise<void> {
+    try {
+      // Update UI to show error state
+      if (this.sidePanelView) {
+        this.sidePanelView.updateProcessingError({
+          requestId: processingState.requestId,
+          error: processingState.errorDetails,
+          duration: Date.now() - processingState.operation.startTime
+        });
+      }
+
+      // Update ribbon icon back to normal
+      this.updateRibbonIcon();
+
+    } catch (error) {
+      console.error('[TrackEditsPlugin] Error updating processing error UI:', error);
+    }
+  }
+
+  // Processing State Management Utilities
+  public getActiveProcessingOperations(): AIProcessingState[] {
+    return Array.from(this.aiProcessingStates.values()).filter(state => 
+      state.status === 'processing' || state.status === 'preparing'
+    );
+  }
+
+  public getProcessingState(requestId: string): AIProcessingState | undefined {
+    return this.aiProcessingStates.get(requestId);
+  }
+
+  public isProcessingActive(requestId?: string): boolean {
+    if (requestId) {
+      const state = this.aiProcessingStates.get(requestId);
+      return state?.status === 'processing' || state?.status === 'preparing';
+    }
+    return this.getActiveProcessingOperations().length > 0;
+  }
+
+  public cancelProcessing(requestId: string): boolean {
+    const state = this.aiProcessingStates.get(requestId);
+    if (state && (state.status === 'processing' || state.status === 'preparing')) {
+      state.status = 'cancelled';
+      
+      // Move from active to failed queue
+      const activeIndex = this.processingQueue.active.findIndex(s => s.requestId === requestId);
+      if (activeIndex !== -1) {
+        this.processingQueue.active.splice(activeIndex, 1);
+        this.processingQueue.failed.push(state);
+      }
+      
+      this.processingLocks.delete(requestId);
+      console.log(`[TrackEditsPlugin] Cancelled processing: ${requestId}`);
+      return true;
+    }
+    return false;
+  }
+
+  private async waitForProcessingCompletion(requestId: string, timeoutMs: number): Promise<SubmitChangesFromAIResult> {
+    const startTime = Date.now();
+    const checkInterval = 1000; // Check every second
+
+    return new Promise((resolve) => {
+      const checkCompletion = () => {
+        const processingState = this.aiProcessingStates.get(requestId);
+        
+        if (!processingState) {
+          resolve({
+            success: false,
+            changeIds: [],
+            errors: ['Processing state not found'],
+            warnings: []
+          });
+          return;
+        }
+
+        if (processingState.status === 'completed') {
+          // Extract results from processing state
+          resolve({
+            success: true,
+            changeIds: [], // Would be populated from actual results
+            errors: [],
+            warnings: [`Coordinated with completed operation: ${requestId}`]
+          });
+          return;
+        }
+
+        if (processingState.status === 'error' || processingState.status === 'cancelled') {
+          resolve({
+            success: false,
+            changeIds: [],
+            errors: [processingState.errorDetails?.message || 'Processing failed'],
+            warnings: []
+          });
+          return;
+        }
+
+        if (Date.now() - startTime > timeoutMs) {
+          resolve({
+            success: false,
+            changeIds: [],
+            errors: ['Coordination timeout'],
+            warnings: [`Processing still active after ${timeoutMs}ms`]
+          });
+          return;
+        }
+
+        // Continue checking
+        setTimeout(checkCompletion, checkInterval);
+      };
+
+      checkCompletion();
+    });
+  }
+
+  private async publishAIProcessingStartEvent(payload: any, sessionId?: string): Promise<void> {
+    try {
+      if (!this.eventBusConnection) return;
+
+      await this.eventBusConnection.publish({
+        type: 'ai.processing.start',
+        sourcePlugin: 'track-edits',
+        targetPlugin: '*',
+        timestamp: Date.now(),
+        sessionId,
+        schemaVersion: '2.0.0',
+        payload
+      });
+    } catch (error) {
+      console.error('[TrackEditsPlugin] Error publishing AI processing start event:', error);
+    }
+  }
+
+  private async publishAIProcessingProgressEvent(requestId: string, progress: any, partialResults?: any, metrics?: any): Promise<void> {
+    try {
+      if (!this.eventBusConnection) return;
+
+      await this.eventBusConnection.publish({
+        type: 'ai.processing.progress',
+        sourcePlugin: 'track-edits',
+        targetPlugin: '*',
+        timestamp: Date.now(),
+        schemaVersion: '2.0.0',
+        payload: {
+          requestId,
+          progress,
+          partialResults,
+          metrics
+        }
+      });
+    } catch (error) {
+      console.error('[TrackEditsPlugin] Error publishing AI processing progress event:', error);
+    }
+  }
+
+  private async publishAIProcessingCompleteEvent(payload: any, sessionId?: string): Promise<void> {
+    try {
+      if (!this.eventBusConnection) return;
+
+      await this.eventBusConnection.publish({
+        type: 'ai.processing.complete',
+        sourcePlugin: 'track-edits',
+        targetPlugin: '*',
+        timestamp: Date.now(),
+        sessionId,
+        schemaVersion: '2.0.0',
+        payload
+      });
+    } catch (error) {
+      console.error('[TrackEditsPlugin] Error publishing AI processing complete event:', error);
+    }
+  }
+
+  private async publishAIProcessingErrorEvent(requestId: string, errorType: string, message: string, context?: any, recovery?: any): Promise<void> {
+    try {
+      if (!this.eventBusConnection) return;
+
+      await this.eventBusConnection.publish({
+        type: 'ai.processing.error',
+        sourcePlugin: 'track-edits',
+        targetPlugin: '*',
+        timestamp: Date.now(),
+        schemaVersion: '2.0.0',
+        payload: {
+          requestId,
+          error: {
+            type: errorType,
+            message,
+            code: errorType.toUpperCase(),
+            recoverability: recovery ? 'recoverable' : 'non-recoverable'
+          },
+          context: context || {
+            stage: 'unknown',
+            partialResults: [],
+            resourceUsage: {}
+          },
+          recovery: recovery || {
+            automaticRetryAvailable: false,
+            manualInterventionRequired: true,
+            suggestedActions: ['Check logs', 'Retry operation'],
+            fallbackOptions: []
+          }
+        }
+      });
+    } catch (error) {
+      console.error('[TrackEditsPlugin] Error publishing AI processing error event:', error);
+    }
+  }
+
+  /**
+   * Publish a change event through the event bus
+   */
+  private async publishChangeEvent(
+    type: WriterrlChangeEvent['type'],
+    payload: WriterrlChangeEvent['payload'],
+    sessionId?: string,
+    documentId?: string
+  ): Promise<void> {
+    try {
+      const event = EventBusUtils.createChangeEvent(
+        type,
+        'track-edits',
+        payload,
+        sessionId || this.currentSession?.id,
+        documentId || this.app.workspace.getActiveFile()?.path,
+        ['writerr-chat', 'editorial-engine']
+      );
+
+      // Try to publish via event bus first
+      if (this.eventBusConnection && this.eventBusConnection.isConnected()) {
+        await this.eventBusConnection.publish(type, event, {
+          persistent: type === 'change.ai.complete' || type === 'change.ai.error'
+        });
+      } else if (this.eventPersistence) {
+        // Store for offline synchronization if event bus not available
+        await this.eventPersistence.storeEventSafe({
+          type,
+          data: event,
+          timestamp: new Date(),
+          eventId: `${type}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+        });
+        console.log(`[TrackEdits] Event stored for offline sync: ${type}`);
+      }
+    } catch (error) {
+      console.error('[TrackEdits EventBus] Failed to publish change event:', error);
+    }
+  }
+
+  /**
+   * Publish a session event through the event bus
+   */
+  private async publishSessionEvent(
+    type: WriterrlSessionEvent['type'],
+    payload: WriterrlSessionEvent['payload'],
+    sessionId?: string,
+    documentId?: string
+  ): Promise<void> {
+    try {
+      const event = EventBusUtils.createSessionEvent(
+        type,
+        'track-edits',
+        payload,
+        sessionId || this.currentSession?.id,
+        documentId || this.app.workspace.getActiveFile()?.path,
+        ['writerr-chat', 'editorial-engine']
+      );
+
+      // Try to publish via event bus first
+      if (this.eventBusConnection && this.eventBusConnection.isConnected()) {
+        await this.eventBusConnection.publish(type, event, {
+          persistent: true
+        });
+      } else if (this.eventPersistence) {
+        // Store for offline synchronization if event bus not available
+        await this.eventPersistence.storeEventSafe({
+          type,
+          data: event,
+          timestamp: new Date(),
+          eventId: `${type}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+        });
+        console.log(`[TrackEdits] Session event stored for offline sync: ${type}`);
+      }
+    } catch (error) {
+      console.error('[TrackEdits EventBus] Failed to publish session event:', error);
+    }
+  }
+
+  /**
+   * Publish an error event through the event bus
+   */
+  private async publishErrorEvent(
+    type: WriterrlErrorEvent['type'],
+    payload: WriterrlErrorEvent['payload'],
+    sessionId?: string,
+    documentId?: string
+  ): Promise<void> {
+    try {
+      const event = EventBusUtils.createErrorEvent(
+        type,
+        'track-edits',
+        payload,
+        sessionId || this.currentSession?.id,
+        documentId || this.app.workspace.getActiveFile()?.path,
+        ['writerr-chat', 'editorial-engine']
+      );
+
+      // Try to publish via event bus first
+      if (this.eventBusConnection && this.eventBusConnection.isConnected()) {
+        await this.eventBusConnection.publish(type, event, {
+          persistent: payload.severity === 'critical' || payload.severity === 'high'
+        });
+      } else if (this.eventPersistence) {
+        // Store for offline synchronization if event bus not available
+        await this.eventPersistence.storeEventSafe({
+          type,
+          data: event,
+          timestamp: new Date(),
+          eventId: `${type}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+        });
+        console.log(`[TrackEdits] Error event stored for offline sync: ${type}`);
+      }
+    } catch (error) {
+      console.error('[TrackEdits EventBus] Failed to publish error event:', error);
+    }
+  }
+
+  /**
+   * Clean up event bus connection and resources
+   */
+  private async cleanupEventBusConnection(): Promise<void> {
+    try {
+      if (this.eventBusConnection) {
+        await this.eventBusConnection.disconnect();
+        this.eventBusConnection = null;
+        console.log('[TrackEditsPlugin] Event bus connection cleaned up');
+      }
+    } catch (error) {
+      console.error('[TrackEditsPlugin] Error during event bus cleanup:', error);
+    }
+  }
+
+  /**
+   * Register the Editorial Engine as a built-in plugin
+   */
+  private async registerEditorialEnginePlugin(): Promise<void> {
+    if (!this.pluginRegistry) return;
+
+    // Create Editorial Engine plugin wrapper
+    const editorialEnginePlugin: IAIProcessingPlugin = new EditorialEnginePluginWrapper();
+
+    try {
+      const result = await this.pluginRegistry.registerPlugin(editorialEnginePlugin, {
+        validateCodeSignature: false, // Built-in plugin, no signature needed
+        allowNetworkAccess: true,
+        allowStorageAccess: true,
+        maxMemoryUsage: 100 * 1024 * 1024, // 100MB
+        rateLimitConfig: {
+          requestsPerMinute: 120,
+          requestsPerHour: 3600,
+          burstLimit: 20,
+          cooldownPeriod: 500
+        },
+        sandboxEnabled: false // Built-in plugin, trusted
+      });
+
+      if (result.success) {
+        console.log('[TrackEditsPlugin] Editorial Engine plugin registered successfully');
+      } else {
+        console.warn('[TrackEditsPlugin] Editorial Engine plugin registration failed:', result.errors);
+      }
+    } catch (error) {
+      console.error('[TrackEditsPlugin] Editorial Engine plugin registration error:', error);
+    }
+  }
+
+  /**
+   * Public API for registering AI processing plugins
+   */
+  public async registerAIProcessingPlugin(plugin: IAIProcessingPlugin): Promise<PluginRegistrationResult> {
+    if (!this.pluginRegistry) {
+      return {
+        success: false,
+        pluginId: '',
+        authToken: '',
+        permissions: [],
+        errors: ['Plugin registration system not initialized'],
+        warnings: [],
+        expiresAt: new Date()
+      };
+    }
+
+    return await this.pluginRegistry.registerPlugin(plugin);
+  }
+
+  /**
+   * Public API for unregistering plugins
+   */
+  public async unregisterAIProcessingPlugin(pluginId: string, reason?: string): Promise<boolean> {
+    if (!this.pluginRegistry) {
+      return false;
+    }
+
+    return await this.pluginRegistry.unregisterPlugin(pluginId, reason);
+  }
+
+  /**
+   * Get all registered plugins
+   */
+  public getRegisteredPlugins(): IAIProcessingPlugin[] {
+    if (!this.pluginRegistry) {
+      return [];
+    }
+
+    return this.pluginRegistry.getPlugins();
+  }
+
+  /**
+   * Get plugin by ID
+   */
+  public getRegisteredPlugin(pluginId: string): IAIProcessingPlugin | undefined {
+    if (!this.pluginRegistry) {
+      return undefined;
+    }
+
+    return this.pluginRegistry.getPlugin(pluginId);
   }
 
   async loadSettings() {
@@ -494,12 +1814,18 @@ export default class TrackEditsPlugin extends Plugin {
       stopTracking: () => this.stopTracking(),
       exportSession: (sessionId: string) => this.exportSession(sessionId)
     };
+
+    // Initialize the plugin API for external plugin integration
+    initializeTrackEditsPluginAPI(this);
   }
 
   private cleanupGlobalAPI() {
     if (window.WriterrlAPI && window.WriterrlAPI.trackEdits) {
       delete window.WriterrlAPI.trackEdits;
     }
+
+    // Cleanup the plugin API
+    cleanupTrackEditsPluginAPI();
   }
 
   private registerSafeEventHandlers() {
@@ -1571,5 +2897,1181 @@ export default class TrackEditsPlugin extends Plugin {
 
   private async getDefaultSystemPrompt(): Promise<string> {
     return `# Track Edits AI Analysis System Prompt\n\nYou are a Track Edits SME specializing in analyzing keystroke patterns and typing behavior.\n\nAnalyze edit clusters to identify user intent and provide workflow insights.\n\nFocus on typing patterns, not content quality.`;
+  }
+
+  /**
+   * Editorial Engine integration API for submitting AI-generated changes
+   * Task 2.2: Platform Integration - Primary interface between Editorial Engine and Track Edits
+   * 
+   * @param changes Array of EditChange objects to record
+   * @param aiProvider AI provider identifier (e.g., 'anthropic-claude', 'openai-gpt')  
+   * @param aiModel AI model identifier (e.g., 'claude-3-sonnet', 'gpt-4')
+   * @param processingContext Optional context about AI processing settings and constraints
+   * @param options Optional configuration for session management and validation behavior
+   * @returns Promise resolving to detailed result with success status, IDs, and error information
+   */
+  async submitChangesFromAI(
+    changes: EditChange[],
+    aiProvider: string,
+    aiModel: string,
+    processingContext?: AIProcessingContext,
+    options: SubmitChangesFromAIOptions = {}
+  ): Promise<SubmitChangesFromAIResult> {
+    // Import error handling components at the top of the method
+    const { AISubmissionErrorManager } = await import('./error-handling/ai-submission-error-manager');
+    const { RetryRecoveryManager } = await import('./error-handling/retry-recovery-manager');
+
+    // Initialize error handling and recovery managers
+    const errorManager = new AISubmissionErrorManager(this.batchManager);
+    const retryManager = new RetryRecoveryManager();
+
+    const result: SubmitChangesFromAIResult = {
+      success: false,
+      changeIds: [],
+      errors: [],
+      warnings: []
+    };
+
+    // Generate operation ID for tracking
+    const operationId = `ai_submit_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    let transactionId: string | undefined;
+
+    try {
+      // Initialize change consolidation manager
+      const { ChangeConsolidationManager } = await import('./change-consolidation-manager');
+      const consolidationManager = new ChangeConsolidationManager();
+
+      // Create multi-plugin operation for consolidation
+      const multiPluginOperation = {
+        id: operationId,
+        pluginId: 'track-edits',
+        pluginVersion: '1.0.0',
+        sessionId: options.sessionId,
+        documentPath: this.app.workspace.getActiveFile()?.path || 'unknown',
+        changes: changes.map(change => ({
+          ...change,
+          pluginId: 'track-edits',
+          operationId: operationId,
+          semanticContext: processingContext?.constraints?.some(c => c.includes('semantic')) ? {
+            intention: 'enhancement' as const,
+            scope: 'paragraph' as const,
+            confidence: 0.8,
+            preserveFormatting: true,
+            preserveContent: true
+          } : undefined
+        })),
+        timestamp: Date.now(),
+        priority: options.priority || 2, // HIGH priority for user-initiated Track Edits operations
+        capabilities: {
+          canMergeWith: ['editorial-engine', 'writerr-chat'],
+          conflictResolution: ['auto_merge', 'priority_override'],
+          maxConcurrentOperations: 5,
+          supportsRealTimeConsolidation: true,
+          supportedChangeTypes: ['insert', 'delete', 'replace']
+        },
+        metadata: {
+          userInitiated: !options.automated,
+          batchId: processingContext?.batchId,
+          estimatedProcessingTime: changes.length * 1000, // Rough estimate
+          requiresUserReview: changes.length > 10,
+          canBeDeferred: false,
+          tags: processingContext?.constraints || []
+        }
+      };
+
+      // Submit operation for consolidation
+      const consolidationResult = await consolidationManager.submitOperation(multiPluginOperation);
+      
+      if (!consolidationResult.success) {
+        result.errors.push(...(consolidationResult.errors || []));
+        result.warnings.push(...(consolidationResult.warnings || []));
+        
+        if (consolidationResult.errors && consolidationResult.errors.length > 0) {
+          return result;
+        }
+      }
+
+      if (consolidationResult.requiresConsolidation) {
+        result.warnings.push('Multi-plugin consolidation required - changes coordinated with other plugins');
+        
+        if (consolidationResult.estimatedWaitTime && consolidationResult.estimatedWaitTime > 0) {
+          result.warnings.push(`Estimated wait time for consolidation: ${consolidationResult.estimatedWaitTime}ms`);
+        }
+      }
+
+      // Check for concurrent processing operations to coordinate
+      const activeOperations = this.getActiveProcessingOperations();
+      if (activeOperations.length > 0) {
+        console.log(`[TrackEditsPlugin] Active AI processing operations detected: ${activeOperations.length}`);
+        
+        // Check if this is a coordinated operation (from event-driven processing)
+        const coordinatedOperation = activeOperations.find(op => 
+          op.operation.provider === aiProvider && 
+          op.operation.model === aiModel &&
+          op.input.documentId === this.app.workspace.getActiveFile()?.path
+        );
+
+        if (coordinatedOperation && !options.forceProcessing) {
+          // This appears to be a duplicate of an active operation - coordinate instead of process
+          result.warnings.push(`Coordinating with active AI processing operation: ${coordinatedOperation.requestId}`);
+          
+          // Wait for the coordinated operation to complete
+          const coordinatedResult = await this.waitForProcessingCompletion(coordinatedOperation.requestId, 30000);
+          if (coordinatedResult.success) {
+            return coordinatedResult;
+          } else {
+            result.warnings.push('Coordinated operation failed, proceeding with independent processing');
+          }
+        } else {
+          result.warnings.push('Multiple concurrent AI operations detected - processing independently');
+        }
+      }
+
+      // Create processing state for this operation
+      const requestId = operationId;
+      const processingState: AIProcessingState = {
+        requestId,
+        operation: {
+          type: processingContext?.operationType || 'ai_submission',
+          provider: aiProvider,
+          model: aiModel,
+          startTime: Date.now()
+        },
+        input: {
+          documentId: this.app.workspace.getActiveFile()?.path || 'unknown',
+          content: changes.map(c => c.content).join('\n'),
+          userPrompt: processingContext?.userPrompt || 'AI submission via Track Edits',
+          constraints: processingContext?.constraints
+        },
+        status: 'preparing',
+        progress: {
+          percentage: 0,
+          stage: 'initializing'
+        },
+        sourcePlugin: 'track-edits',
+        sessionId: options.sessionId
+      };
+
+      // Add to processing state management
+      this.aiProcessingStates.set(requestId, processingState);
+      this.processingQueue.active.push(processingState);
+
+      // Publish AI processing start event for platform coordination
+      await this.publishAIProcessingStartEvent({
+        requestId,
+        operation: processingState.operation,
+        input: processingState.input,
+        config: {
+          maxRetries: options.maxRetries || 3,
+          timeoutMs: 300000, // 5 minutes
+          expectedDuration: changes.length * 1000 // Rough estimate
+        },
+        pluginContext: {
+          sourcePluginId: 'track-edits',
+          sourcePluginVersion: '1.0.0',
+          processingCapabilities: ['change_tracking', 'session_management', 'batch_processing']
+        }
+      }, options.sessionId);
+
+      // Update processing state to processing
+      processingState.status = 'processing';
+      processingState.progress = { percentage: 10, stage: 'validating' };
+
+      // Input validation
+      if (!changes || changes.length === 0) {
+        processingState.status = 'error';
+        processingState.errorDetails = {
+          type: 'validation',
+          message: 'No changes provided',
+          recoverable: false
+        };
+        result.errors.push('No changes provided');
+        await this.publishAIProcessingErrorEvent(requestId, 'validation', 'No changes provided');
+        return result;
+      }
+
+      if (!aiProvider || !aiModel) {
+        processingState.status = 'error';
+        processingState.errorDetails = {
+          type: 'validation',
+          message: 'AI provider and model are required',
+          recoverable: false
+        };
+        result.errors.push('AI provider and model are required');
+        await this.publishAIProcessingErrorEvent(requestId, 'validation', 'AI provider and model are required');
+        return result;
+      }
+
+      // Update progress
+      processingState.progress = { percentage: 20, stage: 'authenticating' };
+      await this.publishAIProcessingProgressEvent(requestId, processingState.progress, null, {
+        tokensProcessed: 0,
+        responseTime: Date.now() - processingState.operation.startTime,
+        memoryUsage: 0
+      });
+
+      // Plugin system integration - validate plugin authentication if provided
+      if (this.pluginRegistry && (options as any).pluginAuthContext) {
+        const pluginOptions = options as any; // Type assertion for plugin options
+        const pluginAuthContext = pluginOptions.pluginAuthContext;
+
+        // Authenticate plugin
+        const authResult = await this.pluginRegistry.authenticatePlugin(
+          pluginAuthContext.pluginId,
+          {
+            pluginId: pluginAuthContext.pluginId,
+            authToken: pluginAuthContext.sessionToken,
+            timestamp: new Date(),
+            nonce: Math.random().toString(36).substring(2, 15)
+          }
+        );
+
+        if (!authResult) {
+          processingState.status = 'error';
+          processingState.errorDetails = {
+            type: 'authentication',
+            message: 'Plugin authentication failed',
+            recoverable: false
+          };
+          result.errors.push('Plugin authentication failed');
+          await this.publishAIProcessingErrorEvent(requestId, 'authentication', 'Plugin authentication failed');
+          return result;
+        }
+
+        // Validate plugin permissions for document modification
+        const permissionResult = await this.pluginRegistry.validatePermissions(
+          pluginAuthContext.pluginId,
+          ['modify_documents', 'create_sessions'], // Convert to PluginPermission enum
+          { operation: 'ai_submission', context: processingContext }
+        );
+
+        if (!permissionResult.hasPermission) {
+          processingState.status = 'error';
+          processingState.errorDetails = {
+            type: 'permission',
+            message: `Plugin lacks required permissions: ${permissionResult.missingPermissions.join(', ')}`,
+            recoverable: false
+          };
+          result.errors.push(`Plugin lacks required permissions: ${permissionResult.missingPermissions.join(', ')}`);
+          result.warnings.push(...permissionResult.warnings);
+          await this.publishAIProcessingErrorEvent(requestId, 'permission', `Plugin lacks required permissions: ${permissionResult.missingPermissions.join(', ')}`);
+          return result;
+        }
+
+        // Validate plugin capabilities
+        const plugin = this.pluginRegistry.getPlugin(pluginAuthContext.pluginId);
+        if (plugin) {
+          const capabilityValid = await plugin.validateCapability('ai_submission');
+          if (!capabilityValid) {
+            result.warnings.push('Plugin may not fully support this type of AI submission');
+          }
+
+          // Check batch size limits
+          const pluginInfo = plugin.getPluginInfo();
+          if (changes.length > pluginInfo.capabilities.maxBatchSize) {
+            processingState.status = 'error';
+            processingState.errorDetails = {
+              type: 'capability',
+              message: `Batch size ${changes.length} exceeds plugin limit ${pluginInfo.capabilities.maxBatchSize}`,
+              recoverable: true
+            };
+            result.errors.push(`Batch size ${changes.length} exceeds plugin limit ${pluginInfo.capabilities.maxBatchSize}`);
+            await this.publishAIProcessingErrorEvent(requestId, 'capability', `Batch size exceeds limit`);
+            return result;
+          }
+
+          // Check AI provider support
+          if (!pluginInfo.capabilities.aiProviders.includes(aiProvider)) {
+            result.warnings.push(`Plugin may not be optimized for AI provider: ${aiProvider}`);
+          }
+        }
+
+        // Add plugin attribution to processing context
+        if (processingContext) {
+          processingContext = {
+            ...processingContext,
+            metadata: {
+              ...processingContext.metadata,
+              pluginId: pluginAuthContext.pluginId,
+              pluginVersion: plugin?.getPluginInfo().version,
+              submissionTime: new Date().toISOString()
+            }
+          };
+        }
+
+        result.warnings.push(...permissionResult.warnings);
+        console.log(`[TrackEditsPlugin] AI submission authenticated for plugin: ${pluginAuthContext.pluginId}`);
+      }
+
+      // Update progress - authentication complete
+      processingState.progress = { percentage: 30, stage: 'session_management' };
+      await this.publishAIProcessingProgressEvent(requestId, processingState.progress);
+
+      // Handle session management with error handling
+      let sessionId = options.sessionId;
+      if (!sessionId && options.createSession) {
+        sessionId = generateId();
+        const activeFile = this.app.workspace.getActiveFile();
+        if (activeFile) {
+          const session: EditSession = {
+            id: sessionId,
+            startTime: Date.now(),
+            changes: [],
+            wordCount: 0,
+            characterCount: 0
+          };
+          
+          try {
+            this.editTracker.startSession(session, activeFile);
+          } catch (sessionError) {
+            const errorContext = {
+              operation: 'session_creation',
+              sessionId: sessionId,
+              aiProvider,
+              aiModel
+            };
+            
+            const handledError = await errorManager.handleError(sessionError, errorContext);
+            result.errors.push(handledError.error.message);
+            result.warnings.push('Session creation failed - changes will be processed without session tracking');
+            
+            // Continue without session if not critical
+            if (handledError.error.severity === 'critical') {
+              processingState.status = 'error';
+              processingState.errorDetails = {
+                type: 'session',
+                message: handledError.error.message,
+                recoverable: handledError.error.severity !== 'critical'
+              };
+              await this.publishAIProcessingErrorEvent(requestId, 'session', handledError.error.message);
+              return result;
+            }
+            sessionId = undefined;
+          }
+        } else {
+          processingState.status = 'error';
+          processingState.errorDetails = {
+            type: 'session',
+            message: 'Cannot create session: no active file',
+            recoverable: false
+          };
+          result.errors.push('Cannot create session: no active file');
+          await this.publishAIProcessingErrorEvent(requestId, 'session', 'Cannot create session: no active file');
+          return result;
+        }
+      }
+
+      if (!sessionId) {
+        processingState.status = 'error';
+        processingState.errorDetails = {
+          type: 'session',
+          message: 'No session ID provided and createSession option not set',
+          recoverable: false
+        };
+        result.errors.push('No session ID provided and createSession option not set');
+        await this.publishAIProcessingErrorEvent(requestId, 'session', 'No session ID provided');
+        return result;
+      }
+
+      // Update processing state with session ID
+      processingState.sessionId = sessionId;
+
+      // Validate session exists
+      const session = this.editTracker.getSession(sessionId);
+      if (!session) {
+        processingState.status = 'error';
+        processingState.errorDetails = {
+          type: 'session',
+          message: `Session ${sessionId} not found`,
+          recoverable: false
+        };
+        result.errors.push(`Session ${sessionId} not found`);
+        await this.publishAIProcessingErrorEvent(requestId, 'session', `Session not found`);
+        return result;
+      }
+
+      // Update progress - session validated
+      processingState.progress = { percentage: 40, stage: 'preparing_transaction' };
+      await this.publishAIProcessingProgressEvent(requestId, processingState.progress);
+
+      // Create backup state before operations
+      const backupState = errorManager.createBackupState(sessionId, {
+        editTracker: this.editTracker,
+        batchManager: this.batchManager
+      });
+
+      // Begin transaction for atomic operations
+      transactionId = errorManager.beginTransaction(sessionId, [
+        { type: 'create-changes', target: 'session', data: changes },
+        { type: 'update-session', target: sessionId, data: { changes } }
+      ]);
+
+      // Update progress - starting main operation
+      processingState.progress = { percentage: 50, stage: 'processing_changes' };
+      await this.publishAIProcessingProgressEvent(requestId, processingState.progress);
+
+      // Execute the main operation with retry and recovery
+      const operationResult = await retryManager.executeWithRetry(
+        operationId,
+        sessionId,
+        async () => {
+          // Update progress during operation
+          processingState.progress = { percentage: 70, stage: 'applying_changes' };
+          await this.publishAIProcessingProgressEvent(requestId, processingState.progress);
+          
+          return await this.performAISubmissionOperation(
+            changes,
+            aiProvider,
+            aiModel,
+            processingContext,
+            options,
+            sessionId!,
+            session,
+            errorManager,
+            transactionId
+          );
+        },
+        {
+          maxRetries: options.maxRetries || 3,
+          retryableErrorTypes: [
+            (await import('./error-handling/ai-submission-error-manager')).ErrorType.NETWORK,
+            (await import('./error-handling/ai-submission-error-manager')).ErrorType.EDITORIAL_ENGINE,
+            (await import('./error-handling/ai-submission-error-manager')).ErrorType.RATE_LIMITING
+          ]
+        }
+      );
+
+      if (operationResult.success && operationResult.result) {
+        // Update progress - finalizing
+        processingState.progress = { percentage: 90, stage: 'finalizing' };
+        await this.publishAIProcessingProgressEvent(requestId, processingState.progress);
+        
+        // Commit transaction on success
+        if (transactionId) {
+          errorManager.commitTransaction(transactionId);
+        }
+
+        // Update processing state to completed
+        processingState.status = 'completed';
+        processingState.progress = { percentage: 100, stage: 'completed' };
+
+        // Move from active to completed queue
+        const activeIndex = this.processingQueue.active.findIndex(state => state.requestId === requestId);
+        if (activeIndex !== -1) {
+          this.processingQueue.active.splice(activeIndex, 1);
+          this.processingQueue.completed.push(processingState);
+        }
+
+        // Update plugin performance metrics if plugin system is active
+        if (this.pluginRegistry && (options as any).pluginAuthContext) {
+          const pluginId = (options as any).pluginAuthContext.pluginId;
+          // Performance tracking would be implemented in the registry
+          console.log(`[TrackEditsPlugin] Successful AI submission recorded for plugin: ${pluginId}`);
+        }
+
+        // Populate successful result
+        Object.assign(result, operationResult.result);
+        result.success = true;
+
+        // Publish AI processing complete event for platform coordination
+        await this.publishAIProcessingCompleteEvent({
+          requestId,
+          results: {
+            changeIds: result.changeIds,
+            changeGroupId: processingContext?.groupId,
+            summary: `AI submission completed: ${result.changeIds.length} changes applied`,
+            confidence: 0.9, // Default confidence
+            appliedConstraints: processingContext?.constraints || []
+          },
+          metrics: {
+            totalTokens: processingState.metrics?.tokensProcessed || 0,
+            processingTime: Date.now() - processingState.operation.startTime,
+            qualityScore: 0.8, // Default quality score
+            constraintCompliance: 1.0 // Default compliance
+          },
+          recommendations: {
+            suggestedReview: result.changeIds.length > 10,
+            recommendedBatching: result.changeIds.length > 5 ? 'group' : 'individual',
+            followupActions: []
+          }
+        }, sessionId);
+
+        if (operationResult.fallbackUsed) {
+          result.warnings.push(`Operation completed using fallback strategy: ${operationResult.fallbackUsed}`);
+        }
+
+        if (operationResult.attempts > 1) {
+          result.warnings.push(`Operation succeeded after ${operationResult.attempts} attempts`);
+        }
+
+      } else {
+        // Handle operation failure
+        processingState.status = 'error';
+        processingState.errorDetails = {
+          type: 'operation',
+          message: operationResult.error?.message || 'Operation failed',
+          recoverable: operationResult.error?.rollbackRequired !== true
+        };
+
+        // Move from active to failed queue
+        const activeIndex = this.processingQueue.active.findIndex(state => state.requestId === requestId);
+        if (activeIndex !== -1) {
+          this.processingQueue.active.splice(activeIndex, 1);
+          this.processingQueue.failed.push(processingState);
+        }
+
+        if (transactionId && operationResult.error?.rollbackRequired) {
+          const rollbackResult = await errorManager.rollbackTransaction(
+            transactionId,
+            operationResult.error,
+            {
+              sessionManager: this,
+              editTracker: this.editTracker,
+              sessionId: sessionId
+            }
+          );
+
+          if (!rollbackResult.success) {
+            result.errors.push(...rollbackResult.errors);
+            result.warnings.push(...rollbackResult.warnings);
+          } else {
+            result.warnings.push('Changes have been rolled back due to operation failure');
+          }
+        }
+
+        // Record plugin error if plugin system is active
+        if (this.pluginRegistry && (options as any).pluginAuthContext && operationResult.error) {
+          const pluginId = (options as any).pluginAuthContext.pluginId;
+          await this.pluginRegistry.recordPluginError(pluginId, operationResult.error, {
+            operation: 'ai_submission',
+            sessionId,
+            changeCount: changes.length
+          });
+        }
+
+        if (operationResult.error) {
+          result.errors.push(operationResult.error.message);
+          
+          // Publish AI processing error event for platform coordination
+          await this.publishAIProcessingErrorEvent(requestId, 'operation', operationResult.error.message, {
+            stage: 'operation_execution',
+            partialResults: [],
+            resourceUsage: { memory: 0, cpu: 0 }
+          }, {
+            automaticRetryAvailable: false,
+            manualInterventionRequired: true,
+            suggestedActions: ['Check logs', 'Retry with different parameters'],
+            fallbackOptions: []
+          });
+          
+          // Add user-friendly error message
+          const userMessage = errorManager.generateUserErrorMessage(operationResult.error);
+          if (userMessage !== operationResult.error.message) {
+            result.warnings.push(userMessage);
+          }
+        } else {
+          result.errors.push('Operation failed after all retry attempts');
+          
+          // Publish generic error event
+          await this.publishAIProcessingErrorEvent(requestId, 'retry_exhausted', 'Operation failed after all retry attempts');
+        }
+      }
+
+      return result;
+
+    } catch (criticalError) {
+      // Handle critical/unexpected errors
+      const errorContext = {
+        operation: 'ai_submission',
+        sessionId: options.sessionId || 'unknown',
+        changeIds: changes.map(c => c.id).filter(Boolean),
+        transactionId,
+        aiProvider,
+        aiModel
+      };
+
+      // Update processing state
+      const processingState = this.aiProcessingStates.get(operationId);
+      if (processingState) {
+        processingState.status = 'error';
+        processingState.errorDetails = {
+          type: 'critical',
+          message: criticalError.message,
+          recoverable: false
+        };
+
+        // Move to failed queue
+        const activeIndex = this.processingQueue.active.findIndex(state => state.requestId === operationId);
+        if (activeIndex !== -1) {
+          this.processingQueue.active.splice(activeIndex, 1);
+          this.processingQueue.failed.push(processingState);
+        }
+      }
+
+      const handledError = await errorManager.handleError(criticalError, errorContext);
+      
+      // Record critical error for plugin if applicable
+      if (this.pluginRegistry && (options as any).pluginAuthContext) {
+        const pluginId = (options as any).pluginAuthContext.pluginId;
+        await this.pluginRegistry.recordPluginError(pluginId, handledError.error, errorContext);
+      }
+      
+      // Attempt rollback if transaction exists
+      if (transactionId && handledError.rollbackRequired) {
+        try {
+          await errorManager.rollbackTransaction(
+            transactionId,
+            handledError.error,
+            {
+              sessionManager: this,
+              editTracker: this.editTracker,
+              sessionId: options.sessionId || 'unknown'
+            }
+          );
+          result.warnings.push('System recovered from critical error - changes have been rolled back');
+        } catch (rollbackError) {
+          result.errors.push('Critical error occurred and rollback failed - manual recovery may be required');
+          console.error('[TrackEditsPlugin] Critical rollback failure:', rollbackError);
+        }
+      }
+
+      // Publish critical error event
+      await this.publishAIProcessingErrorEvent(operationId, 'critical', handledError.error.message, {
+        stage: 'critical_error',
+        partialResults: [],
+        resourceUsage: { memory: 0, cpu: 0 }
+      }, {
+        automaticRetryAvailable: false,
+        manualInterventionRequired: true,
+        suggestedActions: ['Check system logs', 'Restart plugin', 'Contact support'],
+        fallbackOptions: []
+      });
+
+      const userMessage = errorManager.generateUserErrorMessage(handledError.error);
+      result.errors.push(userMessage);
+      
+      // Log the critical error for debugging
+      console.error('[TrackEditsPlugin] Critical error in submitChangesFromAI:', {
+        error: criticalError,
+        context: errorContext,
+        categorizedError: handledError.error,
+        timestamp: new Date().toISOString()
+      });
+
+      return result;
+    } finally {
+      // Cleanup and maintenance
+      errorManager.cleanup();
+      retryManager.cleanup();
+      
+      // Clean up processing locks
+      this.processingLocks.delete(operationId);
+    }
+  }
+
+  /**
+   * Enhanced event integration using standardized V2 event schemas
+   */
+  private async publishEnhancedChangeEvent(
+    eventType: 'change.ai.start' | 'change.ai.complete' | 'change.ai.error' | 'change.batch.created' | 'change.batch.processed',
+    payload: any,
+    sessionId?: string,
+    priority: import('./event-bus-integration').EventPriority = 1,
+    persistence: import('./event-bus-integration').EventPersistence = 'session'
+  ): Promise<void> {
+    try {
+      const { 
+        WriterrlEventFactory
+        // EventPriority, 
+        // EventPersistence 
+      } = await import('./event-bus-integration');
+      
+      // Create enhanced event with proper metadata
+      const baseEvent = WriterrlEventFactory.createBaseEvent(
+        eventType,
+        'track-edits',
+        priority,
+        persistence
+      );
+      
+      const enhancedEvent = {
+        ...baseEvent,
+        type: eventType,
+        sessionId,
+        documentId: this.app.workspace.getActiveFile()?.path,
+        targetPlugins: this.getTargetPluginsForEvent(eventType),
+        payload: {
+          ...payload,
+          pluginVersion: this.manifest.version,
+          timestamp: Date.now(),
+          correlationId: baseEvent.metadata.correlationId
+        }
+      };
+      
+      // Use existing event bus connection
+      if (this.eventBusConnection?.isConnected()) {
+        await this.eventBusConnection.publish(eventType, enhancedEvent as any);
+      } else {
+        // Fallback to legacy event publishing
+        await this.publishChangeEvent(eventType, payload, sessionId);
+      }
+      
+    } catch (error) {
+      console.error(`Failed to publish enhanced event ${eventType}:`, error);
+      // Fallback to legacy event publishing
+      await this.publishChangeEvent(eventType, payload, sessionId);
+    }
+  }
+  
+  /**
+   * Determine target plugins based on event type using routing configuration
+   */
+  private getTargetPluginsForEvent(eventType: string): string[] {
+    const { STANDARD_EVENT_ROUTING } = require('./event-coordination-patterns');
+    const routing = STANDARD_EVENT_ROUTING[eventType];
+    return routing?.targetPlugins || ['writerr-chat', 'editorial-engine'];
+  }
+  
+  /**
+   * Start a cross-plugin workflow using the orchestration system
+   */
+  async startCrossPluginWorkflow(
+    workflowType: 'chat-to-editorial-to-track' | 'collaborative-edit' | 'batch-processing',
+    context: any
+  ): Promise<string> {
+    try {
+      const { 
+        WorkflowOrchestrator, 
+        WriterrlWorkflowPatterns 
+      } = await import('./event-coordination-patterns');
+      
+      if (!this.workflowOrchestrator) {
+        this.workflowOrchestrator = new WorkflowOrchestrator();
+      }
+      
+      const workflowId = `workflow_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      let steps;
+      switch (workflowType) {
+        case 'chat-to-editorial-to-track':
+          steps = WriterrlWorkflowPatterns.getChatToEditorialToTrackWorkflow(workflowId);
+          break;
+        case 'collaborative-edit':
+          steps = WriterrlWorkflowPatterns.getCollaborativeEditWorkflow(workflowId);
+          break;
+        case 'batch-processing':
+          steps = WriterrlWorkflowPatterns.getBatchProcessingWorkflow(workflowId);
+          break;
+        default:
+          throw new Error(`Unknown workflow type: ${workflowType}`);
+      }
+      
+      const started = await this.workflowOrchestrator.startWorkflow(
+        workflowId,
+        workflowType,
+        steps,
+        context
+      );
+      
+      if (!started) {
+        throw new Error('Failed to start workflow');
+      }
+      
+      return workflowId;
+      
+    } catch (error) {
+      console.error(`Failed to start workflow ${workflowType}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Core AI submission operation (extracted for retry logic)
+   */
+  private async performAISubmissionOperation(
+    changes: EditChange[],
+    aiProvider: string,
+    aiModel: string,
+    processingContext?: AIProcessingContext,
+    options: SubmitChangesFromAIOptions = {},
+    sessionId: string,
+    session: EditSession,
+    errorManager: any, // AISubmissionErrorManager
+    transactionId?: string
+  ): Promise<SubmitChangesFromAIResult> {
+    // Enhanced AI metadata validation with Editorial Engine support
+    if (options.strictValidation !== false && !options.bypassValidation) {
+      try {
+        // Determine validation environment
+        const environment = process.env.NODE_ENV === 'production' ? 'production' : 
+                           process.env.NODE_ENV === 'test' ? 'testing' : 'development';
+        
+        // Get environment-specific validation config
+        const validationConfig = AIMetadataValidator.getValidationConfig(environment);
+        
+        // Override with user-provided options
+        const validationOptions: any = {
+          ...validationConfig,
+          strictMode: options.strictValidation ?? validationConfig.strictMode,
+          bypassValidation: options.bypassValidation ?? false,
+          editorialEngineMode: options.editorialEngineMode ?? validationConfig.editorialEngineMode,
+          enableRateLimiting: validationConfig.enableRateLimiting,
+          logSecurityViolations: validationConfig.logSecurityViolations
+        };
+
+        const validationResult = AIMetadataValidator.validateAIMetadata(
+          aiProvider,
+          aiModel,
+          processingContext,
+          new Date(),
+          validationOptions
+        );
+
+        if (!validationResult.isValid) {
+          // Create validation error
+          const validationError = new Error(`Validation failed: ${validationResult.errors.join(', ')}`);
+          (validationError as any).code = 'VALIDATION_ERROR';
+          (validationError as any).details = validationResult;
+          throw validationError;
+        }
+
+        // Use sanitized metadata from validation
+        aiProvider = validationResult.sanitizedMetadata?.aiProvider || aiProvider;
+        aiModel = validationResult.sanitizedMetadata?.aiModel || aiModel;
+        processingContext = validationResult.sanitizedMetadata?.processingContext || processingContext;
+        
+        // Track security threats even for successful validations
+        if (validationResult.securityThreats.length > 0) {
+          console.warn('[TrackEditsPlugin] Security threats detected and sanitized:', validationResult.securityThreats);
+        }
+      } catch (validationError) {
+        // Let the validation error bubble up to be handled by retry system
+        throw validationError;
+      }
+    }
+
+    // Advanced change grouping logic if enabled
+    let changeGroupingResult;
+    let changeGroupId;
+    
+    if (options.groupChanges && changes.length >= 2) {
+      try {
+        // Determine editorial operation type
+        const operationType: EditorialOperationType = options.editorialOperation || 
+          this.inferEditorialOperationType(changes, processingContext, options);
+        
+        const operationDescription = options.customOperationDescription ||
+          this.generateOperationDescription(operationType, changes.length);
+
+        // Create batches using the batch manager
+        changeGroupingResult = this.batchManager.createBatches(
+          changes,
+          sessionId,
+          operationType,
+          operationDescription
+        );
+        
+        // Use the primary group ID if groups were created
+        if (changeGroupingResult?.groups?.length > 0) {
+          changeGroupId = changeGroupingResult.groups[0]?.groupId;
+        }
+      } catch (batchError) {
+        // Convert batch error and let retry system handle it
+        const batchErrorWithCode = new Error(`Batch processing failed: ${batchError instanceof Error ? batchError.message : String(batchError)}`);
+        (batchErrorWithCode as any).code = 'BATCH_ERROR';
+        throw batchErrorWithCode;
+      }
+    } else if (options.groupChanges) {
+      // Simple grouping fallback for small change sets
+      changeGroupId = generateId();
+    }
+
+    // Enhanced batch validation for individual changes
+    const validatedChanges: EditChange[] = [];
+    
+    for (let i = 0; i < changes.length; i++) {
+      const change = changes[i];
+      if (!change) {
+        console.warn(`Change ${i} is undefined, skipping`);
+        continue;
+      }
+      
+      // Enhanced change validation
+      const changeId = change.id || `${sessionId}_${Date.now()}_${i}`;
+      
+      // Create enhanced processing context with additional metadata
+      const enhancedProcessingContext: EnhancedAIProcessingContext = {
+        ...processingContext,
+        // Add conversation context if provided
+        ...(options.conversationContext && {
+          conversationId: options.conversationContext.conversationId,
+          messageId: options.conversationContext.messageId,
+          userPrompt: options.conversationContext.userPrompt
+        }),
+        // Add change group ID if grouping is enabled
+        ...(changeGroupId && { changeGroupId }),
+        // Add Editorial Engine metadata
+        metadata: {
+          ...(processingContext?.metadata || {}),
+          changeIndex: i,
+          totalChanges: changes.length,
+          validationTimestamp: new Date().toISOString(),
+          securityValidated: true,
+          transactionId
+        }
+      };
+
+      const validatedChange: EditChange = {
+        ...change,
+        id: changeId,
+        type: change.type || 'replace',
+        timestamp: change.timestamp || Date.now(),
+        aiProvider,
+        aiModel,
+        processingContext: enhancedProcessingContext,
+        aiTimestamp: new Date(),
+        author: change.author || 'Editorial Engine'
+      };
+      
+      validatedChanges.push(validatedChange);
+    }
+
+    // Record changes using existing EditTracker AI recording method with enhanced options
+    let recordResult;
+    try {
+      recordResult = this.editTracker.recordAIChanges(
+        sessionId,
+        validatedChanges,
+        aiProvider,
+        aiModel,
+        processingContext,
+        new Date(),
+        {
+          bypassValidation: options.bypassValidation || false,
+          strictMode: options.strictValidation !== false,
+          // Pass through Editorial Engine mode - use conditional spread to avoid undefined
+          ...(options.editorialEngineMode !== undefined && { editorialEngineMode: options.editorialEngineMode })
+        }
+      );
+
+      if (!recordResult.success) {
+        const recordError = new Error(`Failed to record changes: ${recordResult.errors.join(', ')}`);
+        (recordError as any).code = 'STORAGE_ERROR';
+        (recordError as any).details = recordResult;
+        throw recordError;
+      }
+    } catch (recordError) {
+      throw recordError;
+    }
+
+    // Build successful result
+    const operationResult: SubmitChangesFromAIResult = {
+      success: true,
+      sessionId: sessionId,
+      changeIds: validatedChanges.map(change => change.id!),
+      errors: [],
+      warnings: [...(recordResult?.warnings || [])],
+      // Only include changeGroupId if it exists
+      ...(changeGroupId && { changeGroupId }),
+      ...(changeGroupingResult && { groupingResult: changeGroupingResult }),
+      
+      // Add validation summary to result
+      validationSummary: {
+        totalChanges: validatedChanges.length,
+        provider: aiProvider,
+        model: aiModel,
+        validationMode: options.editorialEngineMode ? 'Editorial Engine' : 'Standard',
+        securityChecksEnabled: options.strictValidation !== false
+      }
+    };
+
+    // Auto-save session if enabled
+    if (this.settings.autoSave) {
+      try {
+        await this.saveCurrentSession();
+      } catch (saveError) {
+        // Non-critical error - warn but don't fail the operation
+        operationResult.warnings.push('Auto-save failed but changes were recorded successfully');
+        console.warn('[TrackEditsPlugin] Auto-save failed:', saveError);
+      }
+    }
+
+    return operationResult;
+  }
+
+  /**
+   * Validates change content for security threats
+   * Used by submitChangesFromAI for individual change validation
+   */
+  private validateChangeContent(content: string): string[] {
+    const threats: string[] = [];
+
+    // Basic XSS detection
+    if (/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi.test(content)) {
+      threats.push('Script injection detected');
+    }
+
+    // HTML injection detection
+    if (/<iframe|<object|<embed|<applet/gi.test(content)) {
+      threats.push('Potentially dangerous HTML elements');
+    }
+
+    // JavaScript protocol detection
+    if (/javascript:|data:|vbscript:/gi.test(content)) {
+      threats.push('Dangerous URL protocols');
+    }
+
+    // SQL injection patterns in content
+    if (/(\bUNION\b|\bSELECT\b|\bINSERT\b|\bUPDATE\b|\bDELETE\b|\bDROP\b)/gi.test(content)) {
+      threats.push('SQL injection patterns');
+    }
+
+    // Command injection patterns
+    if (/[;&|`$(){}[\]\\]/.test(content) && content.length > 100) {
+      threats.push('Command injection characters in large content');
+    }
+
+    return threats;
+  }
+
+  /**
+   * Convenience method for single change submission
+   * Wraps submitChangesFromAI for single EditChange objects
+   */
+  async submitSingleChangeFromAI(
+    change: EditChange,
+    aiProvider: string,
+    aiModel: string,
+    processingContext?: AIProcessingContext,
+    options: SubmitChangesFromAIOptions = {}
+  ): Promise<SubmitChangesFromAIResult> {
+    return this.submitChangesFromAI([change], aiProvider, aiModel, processingContext, options);
+  }
+
+  /**
+   * Get changes by group ID for batch processing analysis
+   * Useful for analyzing related changes submitted as a group
+   */
+  getChangesByGroupId(sessionId: string, groupId: string): EditChange[] {
+    const session = this.editTracker.getSession(sessionId);
+    if (!session) return [];
+
+    return session.changes.filter(change => 
+      (change.processingContext as EnhancedAIProcessingContext)?.changeGroupId === groupId
+    );
+  }
+
+  /**
+   * Infer editorial operation type from changes and context
+   */
+  private inferEditorialOperationType(
+    changes: EditChange[],
+    processingContext?: AIProcessingContext,
+    options?: SubmitChangesFromAIOptions
+  ): EditorialOperationType {
+    // Check if context provides hints about operation type
+    if (processingContext?.mode) {
+      const mode = processingContext.mode.toLowerCase();
+      if (mode.includes('proofreading') || mode.includes('grammar') || mode.includes('spelling')) {
+        return 'proofreading';
+      }
+      if (mode.includes('copy-edit') || mode.includes('comprehensive')) {
+        return 'copy-edit-pass';
+      }
+      if (mode.includes('developmental') || mode.includes('structural')) {
+        return 'developmental-feedback';
+      }
+      if (mode.includes('style') || mode.includes('tone') || mode.includes('voice')) {
+        return 'style-refinement';
+      }
+      if (mode.includes('format') || mode.includes('structure')) {
+        return 'formatting';
+      }
+      if (mode.includes('expand') || mode.includes('clarify') || mode.includes('elaborate')) {
+        return 'content-expansion';
+      }
+      if (mode.includes('reduce') || mode.includes('trim') || mode.includes('condense')) {
+        return 'content-reduction';
+      }
+      if (mode.includes('rewrite') || mode.includes('restructure')) {
+        return 'rewriting';
+      }
+    }
+
+    // Check conversation context for user prompts
+    if (options?.conversationContext?.userPrompt) {
+      const prompt = options.conversationContext.userPrompt.toLowerCase();
+      if (prompt.includes('proofread') || prompt.includes('check grammar') || prompt.includes('fix spelling')) {
+        return 'proofreading';
+      }
+      if (prompt.includes('copy edit') || prompt.includes('comprehensive edit')) {
+        return 'copy-edit-pass';
+      }
+      if (prompt.includes('style') || prompt.includes('tone') || prompt.includes('voice')) {
+        return 'style-refinement';
+      }
+      if (prompt.includes('develop') || prompt.includes('structure') || prompt.includes('organize')) {
+        return 'developmental-feedback';
+      }
+    }
+
+    // Analyze change patterns to infer operation type
+    const hasSmallChanges = changes.some(c => 
+      (c.text && c.text.length < 20) || (c.removedText && c.removedText.length < 20)
+    );
+    const hasLargeChanges = changes.some(c => 
+      (c.text && c.text.length > 100) || (c.removedText && c.removedText.length > 100)
+    );
+    const hasOnlyReplacements = changes.every(c => c.type === 'replace');
+    const hasMostlyInsertions = changes.filter(c => c.type === 'insert').length > changes.length * 0.6;
+    const hasMostlyDeletions = changes.filter(c => c.type === 'delete').length > changes.length * 0.6;
+
+    // Pattern-based inference
+    if (hasOnlyReplacements && hasSmallChanges && !hasLargeChanges) {
+      return 'proofreading';
+    }
+    if (hasMostlyInsertions) {
+      return 'content-expansion';
+    }
+    if (hasMostlyDeletions) {
+      return 'content-reduction';
+    }
+    if (hasLargeChanges) {
+      return 'rewriting';
+    }
+
+    // Default fallback
+    return 'copy-edit-pass';
+  }
+
+  /**
+   * Generate operation description based on type and change count
+   */
+  private generateOperationDescription(
+    operationType: EditorialOperationType, 
+    changeCount: number
+  ): string {
+    const baseDescriptions = {
+      'copy-edit-pass': 'Comprehensive copy editing',
+      'proofreading': 'Grammar and spelling corrections',
+      'developmental-feedback': 'Structural improvements',
+      'style-refinement': 'Style and tone adjustments',
+      'fact-checking': 'Accuracy verification',
+      'formatting': 'Document formatting',
+      'content-expansion': 'Content additions',
+      'content-reduction': 'Content trimming',
+      'rewriting': 'Content restructuring',
+      'custom': 'Editorial changes'
+    };
+
+    const base = baseDescriptions[operationType];
+    return `${base} (${changeCount} change${changeCount !== 1 ? 's' : ''})`;
+  }
+
+  /**
+   * Get batch manager instance for external access
+   */
+  public getBatchManager(): ChangeBatchManager {
+    return this.batchManager;
   }
 }

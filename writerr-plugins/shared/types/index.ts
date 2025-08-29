@@ -6,6 +6,15 @@ export interface WriterrlPlugin {
   version: string;
 }
 
+// AI Processing Context for tracking AI-assisted edits
+export interface AIProcessingContext {
+  constraints?: string[];
+  prompt?: string;
+  mode?: string;
+  instructions?: string;
+  documentContext?: string;
+}
+
 export interface EditChange {
   id: string;
   timestamp: number;
@@ -15,6 +24,12 @@ export interface EditChange {
   text?: string;
   removedText?: string;
   author?: string;
+  
+  // AI metadata fields for tracking AI-assisted edits
+  aiProvider?: string;
+  aiModel?: string;
+  processingContext?: AIProcessingContext;
+  aiTimestamp?: Date;
 }
 
 export interface EditSession {
