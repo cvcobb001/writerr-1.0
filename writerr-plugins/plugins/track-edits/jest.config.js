@@ -15,7 +15,8 @@ module.exports = {
     '!src/**/index.ts'
   ],
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
-  moduleNameMapping: {
-    '\\.(css|less|scss|sass)$': 'identity-obj-proxy'
+  moduleNameMapper: {
+    '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
+    '^@shared/utils$': '<rootDir>/src/utils.ts'
   }
 };
