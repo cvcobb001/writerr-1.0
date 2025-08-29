@@ -68,7 +68,7 @@ describe('AIMetadataValidator', () => {
 
     it('should reject models with security threats', () => {
       const maliciousModel = 'gpt-4<iframe src=\"evil.com\"></iframe>';
-      const result = AIMetadataValidator.validateAIModel(maliciousModel, true);
+      const result = AIMetadataValidator.validateAIModel(maliciousModel, undefined, true);
       expect(result.isValid).toBe(false);
       expect(result.securityThreats).toContain('script_injection');
     });
@@ -301,7 +301,7 @@ describe('AIMetadataValidator', () => {
 
       expect(devConfig.strictMode).toBe(false);
       expect(prodConfig.strictMode).toBe(true);
-      expect(devConfig.maxProcessingContextSize).toBeGreaterThan(prodConfig.maxProcessingContextSize);
+      expect(devConfig.maxProcessingContextSize || 0).toBeGreaterThan(prodConfig.maxProcessingContextSize || 0);
     });
   });
 

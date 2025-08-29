@@ -11,13 +11,13 @@ These are the tasks to be completed for the spec detailed in @.agent-os/specs/20
 
 **Objective:** Expand the existing EditChange interface and attribution system to capture AI metadata and enable platform-wide change tracking.
 
-- [ ] 1.1 Write comprehensive tests for enhanced EditChange interface with AI metadata fields
-- [ ] 1.2 Extend EditChange interface to include aiProvider, aiModel, processingContext, and timestamp fields
+- [x] 1.1 Write comprehensive tests for enhanced EditChange interface with AI metadata fields
+- [x] 1.2 Extend EditChange interface to include aiProvider, aiModel, processingContext, and timestamp fields
 - [ ] 1.3 Update ChangeTracker class to capture and store AI metadata during change recording
 - [ ] 1.4 Add backward compatibility layer for existing EditChange objects without AI metadata
-- [ ] 1.5 Implement metadata validation and sanitization for AI attribution data
-- [ ] 1.6 Create utility methods for querying changes by AI provider or processing context
-- [ ] 1.7 Update change persistence to handle expanded metadata schema
+- [x] 1.5 Implement metadata validation and sanitization for AI attribution data
+- [x] 1.6 Create utility methods for querying changes by AI provider or processing context
+- [x] 1.7 Update change persistence to handle expanded metadata schema
 - [ ] 1.8 Verify all tests pass and maintain backward compatibility
 
 ### 2. Editorial Engine Integration API
@@ -25,7 +25,7 @@ These are the tasks to be completed for the spec detailed in @.agent-os/specs/20
 **Objective:** Create dedicated API methods for the Editorial Engine to submit AI-generated changes with full attribution and context.
 
 - [ ] 2.1 Write tests for submitChangesFromAI() method with various change scenarios
-- [ ] 2.2 Implement submitChangesFromAI() method in TrackEditsPlugin class
+- [x] 2.2 Implement submitChangesFromAI() method in TrackEditsPlugin class
 - [ ] 2.3 Add validation for AI-specific parameters (provider, model, constraints applied)
 - [ ] 2.4 Create change grouping logic for batched Editorial Engine submissions
 - [ ] 2.5 Implement error handling and rollback capabilities for failed AI submissions
