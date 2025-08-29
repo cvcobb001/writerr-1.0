@@ -107,9 +107,9 @@ build_plugin() {
         log_warning "No build script found, assuming plugin is already built"
     fi
     
-    # Verify main.js exists
-    if [[ ! -f "main.js" ]]; then
-        log_error "Plugin build failed - main.js not found"
+    # Verify main.js exists (check in plugin root directory)
+    if [[ ! -f "../main.js" ]]; then
+        log_error "Plugin build failed - main.js not found at ../main.js"
         exit 1
     fi
     
@@ -154,6 +154,29 @@ EOF
     log_info "Waiting for Obsidian to initialize..."
     sleep 10
     
+    echo ""
+    echo "🎯 MANUAL TESTING MODE ACTIVE"
+    echo "👤 Obsidian is ready for your testing!"
+    echo "📝 Go make some edits and observe the Track Edits behavior"
+    echo "🔍 Automation is capturing everything in the background"
+    echo ""
+    echo "⌨️  When done testing, come back to this terminal and type 'done' then ENTER to finish..."
+    echo "💡 Or use Ctrl+C to stop immediately"
+    echo ""
+    
+    while true; do
+        read -p "Type 'done' to finish testing: " input
+        case $input in
+            done|DONE|q|Q|exit|EXIT)
+                echo "Finishing test session..."
+                break
+                ;;
+            *)
+                echo "Continue testing... (type 'done' when finished)"
+                ;;
+        esac
+    done
+    
     # Verify Obsidian is running
     if ! kill -0 "$OBSIDIAN_PID" 2>/dev/null; then
         log_error "Obsidian failed to start or crashed"
@@ -176,7 +199,7 @@ run_test_suite() {
     local exit_code=0
     
     # Run the main test runner
-    if node test-automation/test-runner.js --output="$OUTPUT_DIR" --timeout="$TEST_TIMEOUT"; then
+    if node test-runner.js --output="$OUTPUT_DIR" --timeout="$TEST_TIMEOUT"; then
         log_success "Test suite completed successfully"
     else
         exit_code=$?
@@ -196,7 +219,7 @@ generate_final_report() {
 # Track Edits Test Suite Results
 
 **Timestamp**: $TIMESTAMP  
-**Duration**: $(date -d@$(($(date +%s) - $(date -d "$TIMESTAMP" +%s))) -u +%H:%M:%S)  
+**Duration**: $(($(date +%s) - $(date -j -f "%Y-%m-%d_%H-%M-%S" "$TIMESTAMP" +%s))) seconds  
 **Output Directory**: $OUTPUT_DIR
 
 ## Test Configuration
