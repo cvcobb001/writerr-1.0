@@ -173,18 +173,51 @@ var init_track_edits_adapter = __esm({
         return changes;
       }
       async processChangesWithTrackEdits(changes, job) {
+        var _a, _b;
         const trackEditsAPI = window.WriterrlAPI.trackEdits;
         const currentSession = trackEditsAPI.getCurrentSession();
+        const useSequentialProcessing = ((_a = job.metadata) == null ? void 0 : _a.sequentialProcessing) || false;
+        const processedChanges = [];
+        const rejectedChanges = [];
+        if (useSequentialProcessing) {
+          for (const change of changes) {
+            try {
+              if (trackEditsAPI.recordChange) {
+                await trackEditsAPI.recordChange(change);
+              }
+              processedChanges.push(change);
+            } catch (error) {
+              console.warn(`Failed to record sequential change ${change.id}:`, error);
+              rejectedChanges.push(change);
+            }
+          }
+        } else {
+          for (const change of changes) {
+            try {
+              if (trackEditsAPI.applyChange) {
+                await trackEditsAPI.applyChange(change);
+              }
+              processedChanges.push(change);
+            } catch (error) {
+              console.warn(`Failed to apply change ${change.id}:`, error);
+              rejectedChanges.push(change);
+            }
+          }
+        }
         return {
           success: true,
           sessionId: currentSession.id,
-          appliedChanges: changes,
-          rejectedChanges: [],
+          appliedChanges: processedChanges,
+          rejectedChanges,
           timestamp: Date.now(),
           metadata: {
             jobId: job.id,
             mode: job.payload.mode,
-            processingTime: 0
+            processingTime: performance.now() - (((_b = job.metadata) == null ? void 0 : _b.startTime) || Date.now()),
+            sequentialProcessing: useSequentialProcessing,
+            totalChanges: changes.length,
+            successfulChanges: processedChanges.length,
+            failedChanges: rejectedChanges.length
           }
         };
       }

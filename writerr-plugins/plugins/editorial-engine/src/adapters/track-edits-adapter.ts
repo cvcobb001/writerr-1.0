@@ -187,19 +187,56 @@ export class TrackEditsAdapter implements EngineAdapter {
     const trackEditsAPI = window.WriterrlAPI.trackEdits!;
     const currentSession = trackEditsAPI.getCurrentSession()!;
     
-    // In a real implementation, we would integrate with the Track Edits internal API
-    // For now, we simulate the processing and return a success result
+    // Enhanced integration: Check if changes should be applied sequentially
+    const useSequentialProcessing = job.metadata?.sequentialProcessing || false;
+    const processedChanges: EditChange[] = [];
+    const rejectedChanges: EditChange[] = [];
+    
+    if (useSequentialProcessing) {
+      // For sequential processing, we work with the Chat plugin's integration
+      // The changes have already been applied via SequentialTextProcessor
+      // We just need to record them for tracking
+      for (const change of changes) {
+        try {
+          // Record the change without applying it (already applied sequentially)
+          if (trackEditsAPI.recordChange) {
+            await trackEditsAPI.recordChange(change);
+          }
+          processedChanges.push(change);
+        } catch (error) {
+          console.warn(`Failed to record sequential change ${change.id}:`, error);
+          rejectedChanges.push(change);
+        }
+      }
+    } else {
+      // Traditional processing: Apply changes via Track Edits API
+      for (const change of changes) {
+        try {
+          if (trackEditsAPI.applyChange) {
+            await trackEditsAPI.applyChange(change);
+          }
+          processedChanges.push(change);
+        } catch (error) {
+          console.warn(`Failed to apply change ${change.id}:`, error);
+          rejectedChanges.push(change);
+        }
+      }
+    }
     
     return {
       success: true,
       sessionId: currentSession.id,
-      appliedChanges: changes,
-      rejectedChanges: [],
+      appliedChanges: processedChanges,
+      rejectedChanges: rejectedChanges,
       timestamp: Date.now(),
       metadata: {
         jobId: job.id,
         mode: job.payload.mode,
-        processingTime: 0
+        processingTime: performance.now() - (job.metadata?.startTime || Date.now()),
+        sequentialProcessing: useSequentialProcessing,
+        totalChanges: changes.length,
+        successfulChanges: processedChanges.length,
+        failedChanges: rejectedChanges.length
       }
     };
   }
