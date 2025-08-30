@@ -1,6 +1,6 @@
 import { Plugin, Notice } from 'obsidian';
 import { EditorialEngineSettingsTab, DEFAULT_SETTINGS } from './settings';
-import { ConstraintProcessor } from './constraint-processor';
+import { SimpleDiffProcessor } from './simple-diff-processor';
 import { ModeRegistry } from './mode-registry';
 import { AdapterManager } from './adapter-manager';
 import { PlatformManager } from './platform-manager';
@@ -28,7 +28,7 @@ export interface EditorialEngineAPI {
 
 export default class EditorialEnginePlugin extends Plugin {
   settings: EditorialEngineSettings;
-  constraintProcessor: ConstraintProcessor;
+  simpleDiffProcessor: SimpleDiffProcessor;
   modeRegistry: ModeRegistry;
   adapterManager: AdapterManager;
   platformManager: PlatformManager;
@@ -58,7 +58,7 @@ export default class EditorialEnginePlugin extends Plugin {
     this.addSettingTab(new EditorialEngineSettingsTab(this.app, this));
 
     // Add status bar
-    this.addStatusBarItem().setText('📝 Editorial Engine Ready');
+    this.addStatusBarItem().setText('🖋️ Editorial Engine Ready');
 
     // Listen for Track Edits plugin loading (delayed registration)
     this.eventBus.on('plugin-ready', async (data) => {
@@ -101,8 +101,8 @@ export default class EditorialEnginePlugin extends Plugin {
     // Initialize adapter manager
     this.adapterManager = new AdapterManager(this.eventBus, this.settings);
 
-    // Initialize constraint processor (depends on mode registry and adapter manager)
-    this.constraintProcessor = new ConstraintProcessor(
+    // Initialize simple diff processor (REPLACES constraint processor)
+    this.simpleDiffProcessor = new SimpleDiffProcessor(
       this.modeRegistry,
       this.adapterManager,
       this.performanceMonitor,
@@ -471,7 +471,7 @@ export default class EditorialEnginePlugin extends Plugin {
 
   private async setupDefaultAdapters() {
     // Register Track Edits adapter if Track Edits plugin is available
-    if (window.WriterrlAPI?.trackEdits) {
+    if (window.WritterrlAPI?.trackEdits) {
       try {
         const { TrackEditsAdapter } = await import('./adapters/track-edits-adapter');
         const trackEditsAdapter = new TrackEditsAdapter();
@@ -492,7 +492,8 @@ export default class EditorialEnginePlugin extends Plugin {
     try {
       this.eventBus.emit('processing-started', { intakeId: intake.id });
       
-      const result = await this.constraintProcessor.process(intake);
+      // Use simple diff processor instead of constraint processor
+      const result = await this.simpleDiffProcessor.process(intake);
       
       this.eventBus.emit('processing-completed', { 
         intakeId: intake.id, 
@@ -534,6 +535,7 @@ export default class EditorialEnginePlugin extends Plugin {
   public getStatus(): any {
     return {
       loaded: true,
+      processor: 'simple-diff-processor',
       modesCount: this.modeRegistry.getAllModes().length,
       adaptersCount: this.adapterManager.getAdapterCount(),
       settings: {

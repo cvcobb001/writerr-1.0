@@ -54,5 +54,9 @@
   },
   "engines": {
     "node": ">=16"
+  },
+  "dependencies": {
+    "@types/diff-match-patch": "^1.0.36",
+    "diff-match-patch": "^1.0.5"
   }
 }
