@@ -492,7 +492,8 @@ export default class TrackEditsPlugin extends Plugin {
       getSessionHistory: () => this.editTracker.getSessionHistory(),
       startTracking: () => this.startTracking(),
       stopTracking: () => this.stopTracking(),
-      exportSession: (sessionId: string) => this.exportSession(sessionId)
+      exportSession: (sessionId: string) => this.exportSession(sessionId),
+      applyChange: (change: any) => this.applyExternalChange(change)
     };
   }
 
@@ -1480,6 +1481,57 @@ export default class TrackEditsPlugin extends Plugin {
     DebugMonitor.log('CLEAR_ALL_DECORATIONS_COMPLETE', {
       method: 'clearAllDecorationsEffect'
     });
+  }
+
+  // API method for external plugins (like Editorial Engine via Chat) to apply changes
+  applyExternalChange(change: any): void {
+    if (!this.currentSession || !this.settings.enableTracking) {
+      console.warn('Track Edits: Cannot apply external change - tracking not active');
+      return;
+    }
+
+    // Convert external change to EditChange format
+    const editChange: EditChange = {
+      id: change.id || generateId(),
+      type: change.type === 'replace' ? 'insert' : change.type, // Map replace to insert for now
+      from: change.range?.start || 0,
+      to: change.range?.end || 0,
+      text: change.newText || '',
+      removedText: change.originalText || '',
+      timestamp: change.timestamp || Date.now(),
+      author: change.source || 'external'
+    };
+
+    DebugMonitor.log('APPLY_EXTERNAL_CHANGE', {
+      originalChange: change,
+      convertedEdit: editChange,
+      sessionId: this.currentSession.id
+    });
+
+    // Add to current edits and process like regular edits
+    this.currentEdits.push(editChange);
+    
+    // Create decoration for the change
+    const decoration = createEditDecoration(editChange);
+    
+    // Apply decoration to editor if available
+    const editorView = this.currentEditorView || this.findCurrentEditorView();
+    if (editorView) {
+      requestAnimationFrame(() => {
+        editorView.dispatch({
+          effects: addDecorationEffect.of({ edit: editChange, decoration })
+        });
+      });
+    }
+
+    // Record in tracker
+    this.editTracker.recordChanges(this.currentSession.id, [editChange]);
+    
+    // Update UI
+    this.debouncedPanelUpdate();
+    this.debouncedSave();
+
+    console.log('Track Edits: Applied external change', editChange.id);
   }
 
   handleEditsFromCodeMirror(edits: EditChange[]) {

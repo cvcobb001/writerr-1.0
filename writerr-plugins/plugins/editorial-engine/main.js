@@ -1088,17 +1088,28 @@ var ConstraintProcessor = class {
     }
   }
   async normalizeIntake(intake) {
+    if (!intake) {
+      throw new Error("Invalid input for constraint processing: intake payload is null or undefined");
+    }
+    if (!intake.instructions || typeof intake.instructions !== "string") {
+      throw new Error(`Invalid instructions for constraint processing: received ${typeof intake.instructions}, expected string`);
+    }
+    if (!intake.sourceText || typeof intake.sourceText !== "string") {
+      throw new Error(`Invalid source text for constraint processing: received ${typeof intake.sourceText}, expected string`);
+    }
+    const instructionsTrimmed = intake.instructions.trim();
+    const sourceTextTrimmed = intake.sourceText.trim();
+    if (instructionsTrimmed.length === 0) {
+      throw new Error("Instructions cannot be empty or whitespace-only");
+    }
+    if (sourceTextTrimmed.length === 0) {
+      throw new Error("Source text cannot be empty or whitespace-only");
+    }
     const normalized = {
       ...intake,
-      instructions: intake.instructions.trim(),
-      sourceText: intake.sourceText.trim()
+      instructions: instructionsTrimmed,
+      sourceText: sourceTextTrimmed
     };
-    if (!normalized.instructions) {
-      throw new Error("Instructions cannot be empty");
-    }
-    if (!normalized.sourceText) {
-      throw new Error("Source text cannot be empty");
-    }
     if (!normalized.mode) {
       normalized.mode = this.settings.defaultMode || "proofreader";
     }
@@ -1312,7 +1323,7 @@ var ConstraintProcessor = class {
       intake,
       steps: [
         {
-          type: "process-text",
+          type: this.modeToJobType(intake.mode),
           adapter: "track-edits",
           payload: {
             text: intake.sourceText,
@@ -1325,6 +1336,15 @@ var ConstraintProcessor = class {
       ],
       createdAt: Date.now()
     };
+  }
+  modeToJobType(mode) {
+    const modeMapping = {
+      "proofreader": "proofreading",
+      "copy-editor": "editing",
+      "developmental-editor": "editing",
+      "creative-writing-assistant": "content-modification"
+    };
+    return modeMapping[mode] || "text-edit";
   }
   async executeViaAdapters(executionPlan) {
     const results = [];
@@ -2601,6 +2621,11 @@ var EditorialEnginePlugin = class extends import_obsidian2.Plugin {
       getPerformanceMetrics: this.getPerformanceMetrics.bind(this)
     };
     this.platformManager.registerPlugin("editorial", this, this.api);
+    if (!window.WriterrlAPI) {
+      window.WriterrlAPI = {};
+    }
+    window.WriterrlAPI.editorialEngine = this.api;
+    console.log("Editorial Engine API exposed to window.WriterrlAPI.editorialEngine");
     this.eventBus.emit("platform-ready", {
       plugin: "editorial-engine",
       api: this.api
@@ -2620,6 +2645,9 @@ var EditorialEnginePlugin = class extends import_obsidian2.Plugin {
   cleanupPlatformAPI() {
     if (this.platformManager) {
       this.platformManager.unregisterPlugin("editorial");
+    }
+    if (window.WriterrlAPI && window.WriterrlAPI.editorialEngine) {
+      delete window.WriterrlAPI.editorialEngine;
     }
   }
   async loadDefaultModes() {

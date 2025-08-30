@@ -2232,8 +2232,7 @@ var ChatInput = class extends BaseComponent {
     const message = this.messageInput.value.trim();
     if (!message || this.isProcessing)
       return;
-    const mode = "chat";
-    this.events.onSend(message, mode);
+    this.events.onSend(message);
     this.clearInput();
   }
   setProcessingState(processing) {
@@ -4617,12 +4616,10 @@ What would you like to know about this text?`;
       fullContext = await this.getDocumentContext();
     }
     try {
-      if (selectedMode && selectedMode !== "chat") {
-        await this.processWithEditorialEngine(parsedMessage, fullContext);
-      } else if (parsedMessage.intent === "edit" || parsedMessage.intent === "improve") {
-        await this.processWithEditorialEngine(parsedMessage, fullContext);
-      } else {
+      if (selectedMode === "chat") {
         await this.processWithAIProvider(parsedMessage, fullContext);
+      } else {
+        await this.processWithEditorialEngine(parsedMessage, fullContext);
       }
       this.currentSession.updatedAt = Date.now();
       if (this.settings.autoSaveChats) {
@@ -4676,7 +4673,7 @@ What would you like to know about this text?`;
     };
   }
   async processWithEditorialEngine(parsedMessage, context) {
-    var _a, _b;
+    var _a, _b, _c;
     if (!((_a = window.Writerr) == null ? void 0 : _a.editorial)) {
       throw new Error("Editorial Engine is not available. Please ensure the Editorial Engine plugin is loaded.");
     }
@@ -4690,15 +4687,23 @@ What would you like to know about this text?`;
     try {
       const payload = {
         id: generateId(),
-        text: parsedMessage.selection || context || parsedMessage.originalContent,
-        originalText: parsedMessage.selection || context,
+        timestamp: Date.now(),
+        sessionId: this.currentSession.id,
+        instructions: parsedMessage.originalContent,
+        // The user's message/request
+        sourceText: parsedMessage.selection || context || "",
+        // The text to be edited
         mode: parsedMessage.mode,
-        constraints: await this.getConstraintsForMode(parsedMessage.mode),
+        context: {
+          documentPath: ((_b = this.app.workspace.getActiveFile()) == null ? void 0 : _b.path) || "",
+          surroundingText: context
+        },
+        preferences: {
+          constraints: await this.getConstraintsForMode(parsedMessage.mode)
+        },
         metadata: {
           source: "writerr-chat",
-          intent: parsedMessage.intent,
-          timestamp: Date.now(),
-          sessionId: this.currentSession.id
+          intent: parsedMessage.intent
         }
       };
       const result = await window.Writerr.editorial.process(payload);
@@ -4716,12 +4721,73 @@ What would you like to know about this text?`;
           }
         };
         this.currentSession.messages.push(assistantMessage);
+        await this.integrateWithTrackEdits(result, parsedMessage);
       } else {
-        throw new Error(`Editorial Engine processing failed: ${(_b = result.errors) == null ? void 0 : _b.map((e) => e.message).join(", ")}`);
+        throw new Error(`Editorial Engine processing failed: ${(_c = result.errors) == null ? void 0 : _c.map((e) => e.message).join(", ")}`);
       }
     } catch (error) {
       console.error("Editorial Engine processing error:", error);
       throw error;
+    }
+  }
+  async integrateWithTrackEdits(editorialEngineResult, parsedMessage) {
+    var _a, _b, _c, _d;
+    try {
+      if (!((_a = window.WriterrlAPI) == null ? void 0 : _a.trackEdits)) {
+        console.warn("Track Edits plugin not available - Editorial Engine results will not be applied to document");
+        return;
+      }
+      if (!editorialEngineResult.changes || editorialEngineResult.changes.length === 0) {
+        console.log("No changes from Editorial Engine to apply to document");
+        return;
+      }
+      console.log("Integrating Editorial Engine results with Track Edits:", {
+        changesCount: editorialEngineResult.changes.length,
+        mode: parsedMessage.mode
+      });
+      const activeFile = this.app.workspace.getActiveFile();
+      if (!activeFile) {
+        console.warn("No active file - cannot apply Editorial Engine changes to document");
+        return;
+      }
+      for (const change of editorialEngineResult.changes) {
+        const trackEditsChange = {
+          id: change.id || generateId(),
+          type: change.type || "edit",
+          range: change.range,
+          originalText: change.originalText,
+          newText: change.newText,
+          confidence: change.confidence || 0.9,
+          reasoning: change.reasoning || `Applied via Editorial Engine (${parsedMessage.mode} mode)`,
+          source: "editorial-engine-via-chat",
+          timestamp: Date.now(),
+          metadata: {
+            editorialEngineJobId: editorialEngineResult.jobId,
+            mode: parsedMessage.mode,
+            chatSessionId: (_b = this.currentSession) == null ? void 0 : _b.id
+          }
+        };
+        await window.WriterrlAPI.trackEdits.applyChange(trackEditsChange);
+      }
+      console.log(`Successfully applied ${editorialEngineResult.changes.length} changes from Editorial Engine to Track Edits`);
+      if (window.Writerr.events) {
+        window.Writerr.events.emit("chat.editorial-engine-integration-success", {
+          jobId: editorialEngineResult.jobId,
+          changesApplied: editorialEngineResult.changes.length,
+          mode: parsedMessage.mode,
+          sessionId: (_c = this.currentSession) == null ? void 0 : _c.id
+        });
+      }
+    } catch (error) {
+      console.error("Track Edits integration error:", error);
+      if (window.Writerr.events) {
+        window.Writerr.events.emit("chat.editorial-engine-integration-failure", {
+          error: error.message,
+          mode: parsedMessage.mode,
+          sessionId: (_d = this.currentSession) == null ? void 0 : _d.id
+        });
+      }
+      console.warn("Editorial Engine results displayed in chat but could not be applied to document");
     }
   }
   async processWithAIProvider(parsedMessage, context) {

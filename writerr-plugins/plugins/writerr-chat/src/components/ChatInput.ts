@@ -186,10 +186,8 @@ export class ChatInput extends BaseComponent {
     const message = this.messageInput.value.trim();
     if (!message || this.isProcessing) return;
 
-    // Get current mode (would be passed from parent in real implementation)
-    const mode = 'chat'; // This should be obtained from the header component
-    
-    this.events.onSend(message, mode);
+    // Don't pass mode - let ChatView get it from ChatHeader
+    this.events.onSend(message);
     this.clearInput();
   }
 

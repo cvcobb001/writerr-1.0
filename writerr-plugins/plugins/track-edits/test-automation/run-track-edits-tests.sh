@@ -198,12 +198,12 @@ run_test_suite() {
     
     local exit_code=0
     
-    # Run the main test runner
-    if node test-runner.js --output="$OUTPUT_DIR" --timeout="$TEST_TIMEOUT"; then
-        log_success "Test suite completed successfully"
+    # Run the enhanced test runner with Phase 4 Editorial Engine monitoring
+    if node enhanced-test-runner.js --output="$OUTPUT_DIR" --timeout="$TEST_TIMEOUT"; then
+        log_success "Phase 4 Editorial Engine monitoring started successfully"
     else
         exit_code=$?
-        log_error "Test suite failed with exit code: $exit_code"
+        log_error "Enhanced test runner failed with exit code: $exit_code"
     fi
     
     return $exit_code

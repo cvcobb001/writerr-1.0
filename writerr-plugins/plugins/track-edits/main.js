@@ -1411,7 +1411,8 @@ var TrackEditsPlugin = class extends import_obsidian5.Plugin {
       getSessionHistory: () => this.editTracker.getSessionHistory(),
       startTracking: () => this.startTracking(),
       stopTracking: () => this.stopTracking(),
-      exportSession: (sessionId) => this.exportSession(sessionId)
+      exportSession: (sessionId) => this.exportSession(sessionId),
+      applyChange: (change) => this.applyExternalChange(change)
     };
   }
   cleanupGlobalAPI() {
@@ -2157,6 +2158,44 @@ var TrackEditsPlugin = class extends import_obsidian5.Plugin {
     DebugMonitor.log("CLEAR_ALL_DECORATIONS_COMPLETE", {
       method: "clearAllDecorationsEffect"
     });
+  }
+  // API method for external plugins (like Editorial Engine via Chat) to apply changes
+  applyExternalChange(change) {
+    var _a, _b;
+    if (!this.currentSession || !this.settings.enableTracking) {
+      console.warn("Track Edits: Cannot apply external change - tracking not active");
+      return;
+    }
+    const editChange = {
+      id: change.id || generateId(),
+      type: change.type === "replace" ? "insert" : change.type,
+      // Map replace to insert for now
+      from: ((_a = change.range) == null ? void 0 : _a.start) || 0,
+      to: ((_b = change.range) == null ? void 0 : _b.end) || 0,
+      text: change.newText || "",
+      removedText: change.originalText || "",
+      timestamp: change.timestamp || Date.now(),
+      author: change.source || "external"
+    };
+    DebugMonitor.log("APPLY_EXTERNAL_CHANGE", {
+      originalChange: change,
+      convertedEdit: editChange,
+      sessionId: this.currentSession.id
+    });
+    this.currentEdits.push(editChange);
+    const decoration = createEditDecoration(editChange);
+    const editorView = this.currentEditorView || this.findCurrentEditorView();
+    if (editorView) {
+      requestAnimationFrame(() => {
+        editorView.dispatch({
+          effects: addDecorationEffect.of({ edit: editChange, decoration })
+        });
+      });
+    }
+    this.editTracker.recordChanges(this.currentSession.id, [editChange]);
+    this.debouncedPanelUpdate();
+    this.debouncedSave();
+    console.log("Track Edits: Applied external change", editChange.id);
   }
   handleEditsFromCodeMirror(edits) {
     var _a;

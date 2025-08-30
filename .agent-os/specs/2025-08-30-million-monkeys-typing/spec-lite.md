@@ -1,0 +1,3 @@
+# Spec Summary (Lite)
+
+Replace wholesale AI document rewrites with sequential text application that simulates fast human typing, allowing Track Edits' existing change detection to generate granular, reviewable decorations. Instead of highlighting entire documents as single changes, AI edits will be applied like a very fast human typist, enabling writers to review and accept/reject individual improvements (spelling, grammar, word choice) through Track Edits' proven interface.

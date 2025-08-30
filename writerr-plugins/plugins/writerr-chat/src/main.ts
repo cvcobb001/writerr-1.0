@@ -579,16 +579,13 @@ select:hover {
     }
 
     try {
-      // Route based on selected mode from UI
-      if (selectedMode && selectedMode !== 'chat') {
-        // Use Editorial Engine for specific modes
-        await this.processWithEditorialEngine(parsedMessage, fullContext);
-      } else if (parsedMessage.intent === 'edit' || parsedMessage.intent === 'improve') {
-        // Fallback: Use Editorial Engine for detected editing intent
-        await this.processWithEditorialEngine(parsedMessage, fullContext);
-      } else {
-        // Standard chat processing (Chat mode or general conversation)
+      // Route based on selected mode from UI - Editorial Engine is default, Chat is the exception
+      if (selectedMode === 'chat') {
+        // Only use chat processing when explicitly in Chat mode
         await this.processWithAIProvider(parsedMessage, fullContext);
+      } else {
+        // Everything else goes through Editorial Engine (Proofreader, Copy Editor, etc.)
+        await this.processWithEditorialEngine(parsedMessage, fullContext);
       }
 
       this.currentSession.updatedAt = Date.now();
@@ -679,15 +676,21 @@ select:hover {
       // Prepare Editorial Engine payload
       const payload: IntakePayload = {
         id: generateId(),
-        text: parsedMessage.selection || context || parsedMessage.originalContent,
-        originalText: parsedMessage.selection || context,
+        timestamp: Date.now(),
+        sessionId: this.currentSession!.id,
+        instructions: parsedMessage.originalContent, // The user's message/request
+        sourceText: parsedMessage.selection || context || '', // The text to be edited
         mode: parsedMessage.mode,
-        constraints: await this.getConstraintsForMode(parsedMessage.mode),
+        context: {
+          documentPath: this.app.workspace.getActiveFile()?.path || '',
+          surroundingText: context
+        },
+        preferences: {
+          constraints: await this.getConstraintsForMode(parsedMessage.mode)
+        },
         metadata: {
           source: 'writerr-chat',
-          intent: parsedMessage.intent,
-          timestamp: Date.now(),
-          sessionId: this.currentSession!.id
+          intent: parsedMessage.intent
         }
       };
 
@@ -710,12 +713,94 @@ select:hover {
         };
 
         this.currentSession!.messages.push(assistantMessage);
+
+        // CRITICAL FIX: Send results to Track Edits for document integration
+        await this.integrateWithTrackEdits(result, parsedMessage);
       } else {
         throw new Error(`Editorial Engine processing failed: ${result.errors?.map(e => e.message).join(', ')}`);
       }
     } catch (error) {
       console.error('Editorial Engine processing error:', error);
       throw error;
+    }
+  }
+
+  private async integrateWithTrackEdits(editorialEngineResult: any, parsedMessage: ParsedMessage): Promise<void> {
+    try {
+      // Check if Track Edits is available
+      if (!window.WriterrlAPI?.trackEdits) {
+        console.warn('Track Edits plugin not available - Editorial Engine results will not be applied to document');
+        return;
+      }
+
+      // Check if there are changes to apply
+      if (!editorialEngineResult.changes || editorialEngineResult.changes.length === 0) {
+        console.log('No changes from Editorial Engine to apply to document');
+        return;
+      }
+
+      console.log('Integrating Editorial Engine results with Track Edits:', {
+        changesCount: editorialEngineResult.changes.length,
+        mode: parsedMessage.mode
+      });
+
+      // Get the current active file
+      const activeFile = this.app.workspace.getActiveFile();
+      if (!activeFile) {
+        console.warn('No active file - cannot apply Editorial Engine changes to document');
+        return;
+      }
+
+      // Apply changes through Track Edits
+      for (const change of editorialEngineResult.changes) {
+        // Convert Editorial Engine change format to Track Edits format
+        const trackEditsChange = {
+          id: change.id || generateId(),
+          type: change.type || 'edit',
+          range: change.range,
+          originalText: change.originalText,
+          newText: change.newText,
+          confidence: change.confidence || 0.9,
+          reasoning: change.reasoning || `Applied via Editorial Engine (${parsedMessage.mode} mode)`,
+          source: 'editorial-engine-via-chat',
+          timestamp: Date.now(),
+          metadata: {
+            editorialEngineJobId: editorialEngineResult.jobId,
+            mode: parsedMessage.mode,
+            chatSessionId: this.currentSession?.id
+          }
+        };
+
+        // Apply the change through Track Edits platform API
+        await window.WriterrlAPI.trackEdits.applyChange(trackEditsChange);
+      }
+
+      console.log(`Successfully applied ${editorialEngineResult.changes.length} changes from Editorial Engine to Track Edits`);
+
+      // Emit integration success event
+      if (window.Writerr.events) {
+        window.Writerr.events.emit('chat.editorial-engine-integration-success', {
+          jobId: editorialEngineResult.jobId,
+          changesApplied: editorialEngineResult.changes.length,
+          mode: parsedMessage.mode,
+          sessionId: this.currentSession?.id
+        });
+      }
+
+    } catch (error) {
+      console.error('Track Edits integration error:', error);
+      
+      // Emit integration failure event
+      if (window.Writerr.events) {
+        window.Writerr.events.emit('chat.editorial-engine-integration-failure', {
+          error: error.message,
+          mode: parsedMessage.mode,
+          sessionId: this.currentSession?.id
+        });
+      }
+
+      // Don't throw - integration failure shouldn't break the chat response
+      console.warn('Editorial Engine results displayed in chat but could not be applied to document');
     }
   }
 
