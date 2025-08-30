@@ -1,0 +1,108 @@
+{
+  "sessionId": "test_1756504284614",
+  "timestamp": "2025-08-29T21:51:34.957Z",
+  "results": {
+    "startTime": 1756504284614,
+    "endTime": null,
+    "totalTests": 6,
+    "passedTests": 6,
+    "failedTests": 0,
+    "scenarios": [
+      {
+        "name": "basic-operations",
+        "startTime": 1756504289639,
+        "endTime": 1756504292648,
+        "tests": [
+          {
+            "name": "Ribbon Toggle Test",
+            "description": "Test basic ribbon icon functionality",
+            "startTime": 1756504289640,
+            "endTime": 1756504290641,
+            "success": true,
+            "data": {
+              "ribbonExists": true,
+              "canToggle": true
+            }
+          },
+          {
+            "name": "Side Panel Visibility Test",
+            "description": "Test side panel show/hide functionality",
+            "startTime": 1756504290641,
+            "endTime": 1756504291444,
+            "success": true,
+            "data": {
+              "panelCanShow": true,
+              "panelCanHide": true
+            }
+          },
+          {
+            "name": "Edit Detection Test",
+            "description": "Test basic edit detection and highlighting",
+            "startTime": 1756504291446,
+            "endTime": 1756504292648,
+            "success": true,
+            "data": {
+              "detectsEdits": true,
+              "showsHighlights": true,
+              "duplicateIssue": false
+            }
+          }
+        ],
+        "passed": 3,
+        "failed": 0,
+        "issues": []
+      },
+      {
+        "name": "edge-cases",
+        "startTime": 1756504292649,
+        "endTime": 1756504294956,
+        "tests": [
+          {
+            "name": "Rapid Clicks Test",
+            "description": "Test rapid ribbon icon clicking protection",
+            "startTime": 1756504292650,
+            "endTime": 1756504293151,
+            "success": true,
+            "data": {
+              "protectionActive": true
+            }
+          },
+          {
+            "name": "File Switching Test",
+            "description": "Test behavior when switching between files",
+            "startTime": 1756504293152,
+            "endTime": 1756504293954,
+            "success": true,
+            "data": {
+              "handlesFileSwitching": true
+            }
+          },
+          {
+            "name": "Concurrent Edits Test",
+            "description": "Test handling of rapid concurrent edits",
+            "startTime": 1756504293954,
+            "endTime": 1756504294956,
+            "success": true,
+            "data": {
+              "handlesConcurrentEdits": true
+            }
+          }
+        ],
+        "passed": 3,
+        "failed": 0,
+        "issues": []
+      }
+    ],
+    "issues": [],
+    "performance": {}
+  },
+  "config": {
+    "outputDir": ".agent-os/test-sessions/2025-08-29_14-44-59",
+    "timeout": 300000,
+    "sessionId": "test_1756504284614",
+    "testScenarios": [
+      "basic-operations",
+      "edge-cases"
+    ]
+  }
+}

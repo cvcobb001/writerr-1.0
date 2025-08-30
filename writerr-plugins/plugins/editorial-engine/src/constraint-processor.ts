@@ -96,22 +96,39 @@ export class ConstraintProcessor {
   }
 
   private async normalizeIntake(intake: IntakePayload): Promise<IntakePayload> {
+    // Input validation to prevent undefined errors
+    if (!intake) {
+      throw new Error('Invalid input for constraint processing: intake payload is null or undefined');
+    }
+
+    if (!intake.instructions || typeof intake.instructions !== 'string') {
+      throw new Error(`Invalid instructions for constraint processing: received ${typeof intake.instructions}, expected string`);
+    }
+
+    if (!intake.sourceText || typeof intake.sourceText !== 'string') {
+      throw new Error(`Invalid source text for constraint processing: received ${typeof intake.sourceText}, expected string`);
+    }
+
     // Enhanced normalization with validation
+    const instructionsTrimmed = intake.instructions.trim();
+    const sourceTextTrimmed = intake.sourceText.trim();
+
+    // Check for empty strings after trimming
+    if (instructionsTrimmed.length === 0) {
+      throw new Error('Instructions cannot be empty or whitespace-only');
+    }
+
+    if (sourceTextTrimmed.length === 0) {
+      throw new Error('Source text cannot be empty or whitespace-only');
+    }
+
     const normalized = {
       ...intake,
-      instructions: intake.instructions.trim(),
-      sourceText: intake.sourceText.trim()
+      instructions: instructionsTrimmed,
+      sourceText: sourceTextTrimmed
     };
 
-    // Basic validation
-    if (!normalized.instructions) {
-      throw new Error('Instructions cannot be empty');
-    }
-
-    if (!normalized.sourceText) {
-      throw new Error('Source text cannot be empty');
-    }
-
+    // Set default mode if not provided
     if (!normalized.mode) {
       normalized.mode = this.settings.defaultMode || 'proofreader';
     }
@@ -393,7 +410,7 @@ export class ConstraintProcessor {
       intake,
       steps: [
         {
-          type: 'process-text',
+          type: this.modeToJobType(intake.mode),
           adapter: 'track-edits',
           payload: {
             text: intake.sourceText,
@@ -406,6 +423,18 @@ export class ConstraintProcessor {
       ],
       createdAt: Date.now()
     };
+  }
+
+  private modeToJobType(mode: string): string {
+    // Map Editorial Engine modes to adapter job types
+    const modeMapping: Record<string, string> = {
+      'proofreader': 'proofreading',
+      'copy-editor': 'editing',
+      'developmental-editor': 'editing',
+      'creative-writing-assistant': 'content-modification'
+    };
+    
+    return modeMapping[mode] || 'text-edit'; // fallback to text-edit if mode not found
   }
 
   private async executeViaAdapters(executionPlan: any): Promise<any[]> {

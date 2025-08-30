@@ -26,6 +26,16 @@ interface WriterrlChatSettings {
   theme: 'default' | 'compact' | 'minimal';
   selectedModel: string;
   selectedPrompt: string;
+  editorialEngineSettings?: {
+    useSequentialProcessing: boolean;
+    sequentialConfig: {
+      delayMs: number;
+      chunkStrategy: 'word-boundary' | 'sentence-boundary' | 'paragraph-boundary';
+      performanceTarget: number;
+      maxOperations: number;
+    };
+    fallbackToAPI: boolean;
+  };
 }
 
 const DEFAULT_SETTINGS: WriterrlChatSettings = {
@@ -48,8 +58,18 @@ const DEFAULT_SETTINGS: WriterrlChatSettings = {
   showTimestamps: true,
   theme: 'default',
   selectedModel: '',
-  selectedPrompt: ''
-};;
+  selectedPrompt: '',
+  editorialEngineSettings: {
+    useSequentialProcessing: true,
+    sequentialConfig: {
+      delayMs: 50,
+      chunkStrategy: 'word-boundary',
+      performanceTarget: 5000,
+      maxOperations: 500
+    },
+    fallbackToAPI: true
+  }
+};
 
 // Build verification system
 const BUILD_TIMESTAMP = Date.now();
@@ -579,16 +599,13 @@ select:hover {
     }
 
     try {
-      // Route based on selected mode from UI
-      if (selectedMode && selectedMode !== 'chat') {
-        // Use Editorial Engine for specific modes
-        await this.processWithEditorialEngine(parsedMessage, fullContext);
-      } else if (parsedMessage.intent === 'edit' || parsedMessage.intent === 'improve') {
-        // Fallback: Use Editorial Engine for detected editing intent
-        await this.processWithEditorialEngine(parsedMessage, fullContext);
-      } else {
-        // Standard chat processing (Chat mode or general conversation)
+      // Route based on selected mode from UI - Editorial Engine is default, Chat is the exception
+      if (selectedMode === 'chat') {
+        // Only use chat processing when explicitly in Chat mode
         await this.processWithAIProvider(parsedMessage, fullContext);
+      } else {
+        // Everything else goes through Editorial Engine (Proofreader, Copy Editor, etc.)
+        await this.processWithEditorialEngine(parsedMessage, fullContext);
       }
 
       this.currentSession.updatedAt = Date.now();
@@ -679,15 +696,21 @@ select:hover {
       // Prepare Editorial Engine payload
       const payload: IntakePayload = {
         id: generateId(),
-        text: parsedMessage.selection || context || parsedMessage.originalContent,
-        originalText: parsedMessage.selection || context,
+        timestamp: Date.now(),
+        sessionId: this.currentSession!.id,
+        instructions: parsedMessage.originalContent, // The user's message/request
+        sourceText: parsedMessage.selection || context || '', // The text to be edited
         mode: parsedMessage.mode,
-        constraints: await this.getConstraintsForMode(parsedMessage.mode),
+        context: {
+          documentPath: this.app.workspace.getActiveFile()?.path || '',
+          surroundingText: context
+        },
+        preferences: {
+          constraints: await this.getConstraintsForMode(parsedMessage.mode)
+        },
         metadata: {
           source: 'writerr-chat',
-          intent: parsedMessage.intent,
-          timestamp: Date.now(),
-          sessionId: this.currentSession!.id
+          intent: parsedMessage.intent
         }
       };
 
@@ -710,12 +733,230 @@ select:hover {
         };
 
         this.currentSession!.messages.push(assistantMessage);
+
+        // CRITICAL FIX: Send results to Track Edits for document integration
+        await this.integrateWithTrackEdits(result, parsedMessage);
       } else {
         throw new Error(`Editorial Engine processing failed: ${result.errors?.map(e => e.message).join(', ')}`);
       }
     } catch (error) {
       console.error('Editorial Engine processing error:', error);
       throw error;
+    }
+  }
+
+  private async integrateWithTrackEdits(editorialEngineResult: any, parsedMessage: ParsedMessage): Promise<void> {
+    try {
+      // Check if Track Edits is available
+      if (!window.WriterrlAPI?.trackEdits) {
+        console.warn('Track Edits plugin not available - Editorial Engine results will not be applied to document');
+        return;
+      }
+
+      // Check if there are changes to apply
+      if (!editorialEngineResult.changes || editorialEngineResult.changes.length === 0) {
+        console.log('No changes from Editorial Engine to apply to document');
+        return;
+      }
+
+      console.log('Integrating Editorial Engine results with Track Edits using sequential processing:', {
+        changesCount: editorialEngineResult.changes.length,
+        mode: parsedMessage.mode
+      });
+
+      // Get the current active file
+      const activeFile = this.app.workspace.getActiveFile();
+      if (!activeFile) {
+        console.warn('No active file - cannot apply Editorial Engine changes to document');
+        return;
+      }
+
+      // Get the active editor
+      const activeLeaf = this.app.workspace.getActiveViewOfType(require('obsidian').MarkdownView);
+      if (!activeLeaf || !activeLeaf.editor) {
+        console.warn('No active editor - cannot apply Editorial Engine changes to document');
+        return;
+      }
+
+      const editor = activeLeaf.editor;
+      
+      // Prepare Editorial Engine integration with Sequential Processing
+      const useSequentialProcessing = this.settings.editorialEngineSettings?.useSequentialProcessing !== false;
+      const sequentialConfig = this.settings.editorialEngineSettings?.sequentialConfig || {
+        delayMs: 50,
+        chunkStrategy: 'word-boundary',
+        performanceTarget: 5000,
+        maxOperations: 500
+      };
+
+      if (useSequentialProcessing) {
+        try {
+          // Use SequentialTextProcessor for granular Track Edits detection
+          await this.applyChangesSequentially(editorialEngineResult, editor, sequentialConfig);
+          
+          console.log(`Successfully applied ${editorialEngineResult.changes.length} changes from Editorial Engine using sequential processing`);
+        } catch (sequentialError) {
+          console.warn('Sequential processing failed, falling back to API approach:', sequentialError.message);
+          await this.applyChangesViaAPI(editorialEngineResult, parsedMessage);
+        }
+      } else {
+        // Fallback to original API approach
+        await this.applyChangesViaAPI(editorialEngineResult, parsedMessage);
+      }
+
+      // Emit integration success event
+      if (window.Writerr.events) {
+        window.Writerr.events.emit('chat.editorial-engine-integration-success', {
+          jobId: editorialEngineResult.jobId,
+          changesApplied: editorialEngineResult.changes.length,
+          mode: parsedMessage.mode,
+          sessionId: this.currentSession?.id,
+          method: useSequentialProcessing ? 'sequential' : 'api'
+        });
+      }
+
+    } catch (error) {
+      console.error('Track Edits integration error:', error);
+      
+      // Emit integration failure event
+      if (window.Writerr.events) {
+        window.Writerr.events.emit('chat.editorial-engine-integration-failure', {
+          error: error.message,
+          mode: parsedMessage.mode,
+          sessionId: this.currentSession?.id
+        });
+      }
+
+      // Don't throw - integration failure shouldn't break the chat response
+      console.warn('Editorial Engine results displayed in chat but could not be applied to document');
+    }
+  }
+
+  /**
+   * Apply changes using SequentialTextProcessor for granular Track Edits detection
+   */
+  private async applyChangesSequentially(
+    editorialEngineResult: any, 
+    editor: any, 
+    sequentialConfig: any
+  ): Promise<void> {
+    // Import the SequentialTextProcessor
+    const { SequentialTextProcessor } = await import('../../editorial-engine/src/sequential-text-processor');
+    
+    // Create processor with configuration
+    const processor = new SequentialTextProcessor({
+      delayMs: sequentialConfig.delayMs,
+      chunkStrategy: sequentialConfig.chunkStrategy,
+      performanceTarget: sequentialConfig.performanceTarget,
+      maxOperations: sequentialConfig.maxOperations
+    });
+
+    // Create an adapter for the Obsidian editor
+    const obsidianEditorAdapter = {
+      getValue: () => editor.getValue(),
+      replaceRange: (text: string, from: any, to?: any) => {
+        if (to) {
+          editor.replaceRange(text, from, to);
+        } else {
+          editor.replaceRange(text, from);
+        }
+      }
+    };
+
+    // Process each change sequentially
+    for (const change of editorialEngineResult.changes) {
+      try {
+        // Get current document state
+        const currentText = editor.getValue();
+        
+        // Calculate target text by applying this change
+        const targetText = this.applyChangeToText(currentText, change);
+        
+        // Use SequentialTextProcessor to apply change with human-like typing
+        await processor.simulateHumanEditing(
+          currentText,
+          targetText,
+          obsidianEditorAdapter
+        );
+
+        // Record change in Track Edits if available
+        if (window.WriterrlAPI?.trackEdits) {
+          const trackEditsChange = {
+            id: change.id || `seq-${Date.now()}`,
+            type: change.type || 'edit',
+            range: change.range,
+            originalText: change.originalText || '',
+            newText: change.newText || '',
+            confidence: change.confidence || 0.9,
+            reasoning: change.reasoning || `Sequential processing via Editorial Engine`,
+            source: 'editorial-engine-sequential',
+            timestamp: Date.now(),
+            metadata: {
+              editorialEngineJobId: editorialEngineResult.jobId,
+              sequentialProcessing: true
+            }
+          };
+          
+          // Track the change without applying it (since we already applied it sequentially)
+          await window.WriterrlAPI.trackEdits.recordChange?.(trackEditsChange);
+        }
+        
+      } catch (error) {
+        console.warn(`Failed to apply change ${change.id} sequentially:`, error);
+        throw error;
+      }
+    }
+  }
+
+  /**
+   * Apply a single change to text (helper method)
+   */
+  private applyChangeToText(text: string, change: any): string {
+    const { range, originalText, newText, type } = change;
+    
+    if (range && range.from !== undefined && range.to !== undefined) {
+      // Use position-based replacement
+      return text.substring(0, range.from) + (newText || '') + text.substring(range.to);
+    } else if (originalText && newText !== undefined) {
+      // Use text-based replacement
+      return text.replace(originalText, newText);
+    } else if (type === 'insert' && newText) {
+      // Insert at beginning if no position specified
+      return newText + text;
+    }
+    
+    return text;
+  }
+
+  /**
+   * Fallback method: Apply changes via original API approach
+   */
+  private async applyChangesViaAPI(editorialEngineResult: any, parsedMessage: ParsedMessage): Promise<void> {
+    console.log('Applying changes via Track Edits API (fallback method)');
+    
+    // Apply changes through Track Edits API (original approach)
+    for (const change of editorialEngineResult.changes) {
+      // Convert Editorial Engine change format to Track Edits format
+      const trackEditsChange = {
+        id: change.id || generateId(),
+        type: change.type || 'edit',
+        range: change.range,
+        originalText: change.originalText,
+        newText: change.newText,
+        confidence: change.confidence || 0.9,
+        reasoning: change.reasoning || `Applied via Editorial Engine (${parsedMessage.mode} mode)`,
+        source: 'editorial-engine-via-chat',
+        timestamp: Date.now(),
+        metadata: {
+          editorialEngineJobId: editorialEngineResult.jobId,
+          mode: parsedMessage.mode,
+          chatSessionId: this.currentSession?.id,
+          fallbackMethod: true
+        }
+      };
+
+      // Apply the change through Track Edits platform API
+      await window.WriterrlAPI.trackEdits.applyChange(trackEditsChange);
     }
   }
 

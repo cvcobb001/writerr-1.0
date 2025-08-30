@@ -136,6 +136,14 @@ export default class EditorialEnginePlugin extends Plugin {
     // Register with platform manager
     this.platformManager.registerPlugin('editorial', this, this.api);
 
+    // CRITICAL: Expose API to global WriterrlAPI for Chat integration
+    if (!window.WriterrlAPI) {
+      window.WriterrlAPI = {} as any;
+    }
+    
+    window.WriterrlAPI.editorialEngine = this.api;
+    console.log('Editorial Engine API exposed to window.WriterrlAPI.editorialEngine');
+
     // Emit platform ready event
     this.eventBus.emit('platform-ready', { 
       plugin: 'editorial-engine',
@@ -163,6 +171,11 @@ export default class EditorialEnginePlugin extends Plugin {
   private cleanupPlatformAPI() {
     if (this.platformManager) {
       this.platformManager.unregisterPlugin('editorial');
+    }
+    
+    // Cleanup global API
+    if (window.WriterrlAPI && window.WriterrlAPI.editorialEngine) {
+      delete window.WriterrlAPI.editorialEngine;
     }
   }
 

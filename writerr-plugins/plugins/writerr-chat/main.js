@@ -309,6 +309,312 @@ var init_tooltips = __esm({
   }
 });
 
+// plugins/editorial-engine/src/sequential-text-processor.ts
+var sequential_text_processor_exports = {};
+__export(sequential_text_processor_exports, {
+  SequentialTextProcessor: () => SequentialTextProcessor
+});
+var SequentialTextProcessor;
+var init_sequential_text_processor = __esm({
+  "plugins/editorial-engine/src/sequential-text-processor.ts"() {
+    SequentialTextProcessor = class {
+      constructor(options = {}) {
+        this.performanceMetrics = {
+          lastExecutionTime: 0,
+          memoryUsage: 0,
+          operationCount: 0,
+          averageDelayActual: 0
+        };
+        var _a, _b, _c, _d;
+        this.validateConfig(options);
+        this.config = {
+          delayMs: (_a = options.delayMs) != null ? _a : 5,
+          chunkStrategy: (_b = options.chunkStrategy) != null ? _b : "word-boundary",
+          performanceTarget: (_c = options.performanceTarget) != null ? _c : 100,
+          maxOperations: (_d = options.maxOperations) != null ? _d : 1e3
+        };
+      }
+      /**
+       * Main function to simulate human editing behavior
+       * Applies changes sequentially with configurable timing
+       */
+      async simulateHumanEditing(originalText, targetText, editor, options) {
+        const startTime = performance.now();
+        try {
+          const diffResult = this.calculateDiff(originalText, targetText);
+          const operations = this.createSequentialOperations(originalText, targetText);
+          if (operations.length > this.config.maxOperations) {
+            throw new Error(`Too many operations: ${operations.length} exceeds limit of ${this.config.maxOperations}`);
+          }
+          await this.applyOperationsSequentially(operations, editor);
+          const endTime = performance.now();
+          const executionTime = endTime - startTime;
+          if (executionTime > this.config.performanceTarget) {
+            throw new Error(`Performance target exceeded: ${executionTime}ms > ${this.config.performanceTarget}ms`);
+          }
+          this.updatePerformanceMetrics(executionTime, operations.length);
+          return {
+            originalText,
+            targetText,
+            operations,
+            estimatedDuration: executionTime,
+            performanceMetrics: { ...this.performanceMetrics }
+          };
+        } catch (error) {
+          const endTime = performance.now();
+          this.updatePerformanceMetrics(endTime - startTime, 0);
+          throw error;
+        }
+      }
+      /**
+       * Calculate diff between original and target text
+       */
+      calculateDiff(originalText, targetText) {
+        const changes = [];
+        if (originalText === targetText) {
+          return { changes: [], totalChanges: 0, complexity: 0 };
+        }
+        if (originalText === "") {
+          changes.push({
+            type: "insert",
+            startIndex: 0,
+            endIndex: 0,
+            originalText: "",
+            newText: targetText
+          });
+        } else if (targetText === "") {
+          changes.push({
+            type: "delete",
+            startIndex: 0,
+            endIndex: originalText.length,
+            originalText,
+            newText: ""
+          });
+        } else {
+          const diffChanges = this.computeMyersDiff(originalText, targetText);
+          changes.push(...diffChanges);
+        }
+        return {
+          changes,
+          totalChanges: changes.length,
+          complexity: this.calculateComplexity(changes)
+        };
+      }
+      /**
+       * Create sequential operations from diff results
+       */
+      createSequentialOperations(originalText, targetText) {
+        const diffResult = this.calculateDiff(originalText, targetText);
+        const operations = [];
+        if (diffResult.changes.length === 0) {
+          return operations;
+        }
+        let positionOffset = 0;
+        for (const change of diffResult.changes) {
+          const adjustedPosition = change.startIndex + positionOffset;
+          switch (change.type) {
+            case "insert":
+              operations.push({
+                type: "insert",
+                position: adjustedPosition,
+                text: change.newText,
+                delay: this.config.delayMs
+              });
+              positionOffset += change.newText.length;
+              break;
+            case "delete":
+              operations.push({
+                type: "delete",
+                position: adjustedPosition,
+                text: change.originalText,
+                delay: this.config.delayMs
+              });
+              positionOffset -= change.originalText.length;
+              break;
+            case "replace":
+              operations.push({
+                type: "replace",
+                position: adjustedPosition,
+                text: change.newText,
+                delay: this.config.delayMs
+              });
+              positionOffset += change.newText.length - change.originalText.length;
+              break;
+          }
+        }
+        return operations;
+      }
+      /**
+       * Create intelligent chunks respecting word boundaries
+       */
+      createIntelligentChunks(originalText, targetText) {
+        const chunks = [];
+        const diffResult = this.calculateDiff(originalText, targetText);
+        for (const change of diffResult.changes) {
+          const chunk = {
+            type: change.type,
+            text: change.newText || change.originalText,
+            breaksMidWord: this.checkIfBreaksMidWord(change, originalText),
+            respectsPunctuation: this.checkPunctuationBoundary(change, originalText)
+          };
+          chunks.push(chunk);
+        }
+        return chunks;
+      }
+      /**
+       * Get current performance metrics
+       */
+      getPerformanceMetrics() {
+        return { ...this.performanceMetrics };
+      }
+      // Private implementation methods
+      validateConfig(options) {
+        if (options.delayMs !== void 0 && options.delayMs < 0) {
+          throw new Error("Delay must be non-negative");
+        }
+        if (options.performanceTarget !== void 0 && options.performanceTarget <= 0) {
+          throw new Error("Performance target must be positive");
+        }
+      }
+      async applyOperationsSequentially(operations, editor) {
+        let currentText = editor.getValue();
+        for (const operation of operations) {
+          await this.sleep(operation.delay);
+          const position = this.indexToPosition(currentText, operation.position);
+          switch (operation.type) {
+            case "insert":
+              editor.replaceRange(operation.text, position);
+              currentText = this.insertTextAt(currentText, operation.position, operation.text);
+              break;
+            case "delete":
+              const endPosition = this.indexToPosition(currentText, operation.position + operation.text.length);
+              editor.replaceRange("", position, endPosition);
+              currentText = this.deleteTextAt(currentText, operation.position, operation.text.length);
+              break;
+            case "replace":
+              const replaceEndPos = this.indexToPosition(currentText, operation.position + operation.text.length);
+              editor.replaceRange(operation.text, position, replaceEndPos);
+              currentText = this.replaceTextAt(currentText, operation.position, operation.text);
+              break;
+          }
+        }
+      }
+      computeMyersDiff(originalText, targetText) {
+        const changes = [];
+        let i = 0;
+        let j = 0;
+        while (i < originalText.length || j < targetText.length) {
+          if (i >= originalText.length) {
+            changes.push({
+              type: "insert",
+              startIndex: i,
+              endIndex: i,
+              originalText: "",
+              newText: targetText.slice(j)
+            });
+            break;
+          } else if (j >= targetText.length) {
+            changes.push({
+              type: "delete",
+              startIndex: i,
+              endIndex: originalText.length,
+              originalText: originalText.slice(i),
+              newText: ""
+            });
+            break;
+          } else if (originalText[i] === targetText[j]) {
+            i++;
+            j++;
+          } else {
+            const startI = i;
+            const startJ = j;
+            let foundMatch = false;
+            let tempI = i;
+            let tempJ = j;
+            while (tempI < originalText.length && tempJ < targetText.length && !foundMatch) {
+              if (originalText[tempI] === targetText[tempJ]) {
+                foundMatch = true;
+              } else {
+                tempI++;
+                tempJ++;
+              }
+            }
+            if (foundMatch || tempI === originalText.length && tempJ === targetText.length) {
+              changes.push({
+                type: "replace",
+                startIndex: startI,
+                endIndex: tempI,
+                originalText: originalText.slice(startI, tempI),
+                newText: targetText.slice(startJ, tempJ)
+              });
+              i = tempI;
+              j = tempJ;
+            } else {
+              changes.push({
+                type: "replace",
+                startIndex: startI,
+                endIndex: originalText.length,
+                originalText: originalText.slice(startI),
+                newText: targetText.slice(startJ)
+              });
+              break;
+            }
+          }
+        }
+        return changes;
+      }
+      calculateComplexity(changes) {
+        return changes.reduce((complexity, change) => {
+          const lengthFactor = Math.max(change.originalText.length, change.newText.length);
+          const typeFactor = change.type === "replace" ? 1.5 : 1;
+          return complexity + lengthFactor * typeFactor;
+        }, 0);
+      }
+      checkIfBreaksMidWord(change, originalText) {
+        const beforeChar = change.startIndex > 0 ? originalText[change.startIndex - 1] : " ";
+        const afterChar = change.endIndex < originalText.length ? originalText[change.endIndex] : " ";
+        const isWordChar = (char) => /\w/.test(char);
+        return isWordChar(beforeChar) && isWordChar(afterChar);
+      }
+      checkPunctuationBoundary(change, originalText) {
+        const beforeChar = change.startIndex > 0 ? originalText[change.startIndex - 1] : " ";
+        const afterChar = change.endIndex < originalText.length ? originalText[change.endIndex] : " ";
+        const isPunctuation = (char) => /[.,!?;:]/.test(char);
+        return !isPunctuation(beforeChar) && !isPunctuation(afterChar);
+      }
+      updatePerformanceMetrics(executionTime, operationCount) {
+        this.performanceMetrics.lastExecutionTime = executionTime;
+        this.performanceMetrics.operationCount = operationCount;
+        this.performanceMetrics.memoryUsage = this.estimateMemoryUsage();
+        this.performanceMetrics.averageDelayActual = operationCount > 0 ? executionTime / operationCount : 0;
+      }
+      estimateMemoryUsage() {
+        var _a, _b;
+        return ((_b = (_a = process.memoryUsage) == null ? void 0 : _a.call(process)) == null ? void 0 : _b.heapUsed) || 0;
+      }
+      sleep(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+      }
+      indexToPosition(text, index) {
+        const lines = text.slice(0, index).split("\n");
+        return {
+          line: lines.length - 1,
+          ch: lines[lines.length - 1].length
+        };
+      }
+      insertTextAt(text, index, insertText) {
+        return text.slice(0, index) + insertText + text.slice(index);
+      }
+      deleteTextAt(text, index, length) {
+        return text.slice(0, index) + text.slice(index + length);
+      }
+      replaceTextAt(text, index, newText) {
+        return text.slice(0, index) + newText + text.slice(index + newText.length);
+      }
+    };
+  }
+});
+
 // plugins/writerr-chat/src/main.ts
 var main_exports = {};
 __export(main_exports, {
@@ -2232,8 +2538,7 @@ var ChatInput = class extends BaseComponent {
     const message = this.messageInput.value.trim();
     if (!message || this.isProcessing)
       return;
-    const mode = "chat";
-    this.events.onSend(message, mode);
+    this.events.onSend(message);
     this.clearInput();
   }
   setProcessingState(processing) {
@@ -4144,7 +4449,17 @@ var DEFAULT_SETTINGS = {
   showTimestamps: true,
   theme: "default",
   selectedModel: "",
-  selectedPrompt: ""
+  selectedPrompt: "",
+  editorialEngineSettings: {
+    useSequentialProcessing: true,
+    sequentialConfig: {
+      delayMs: 50,
+      chunkStrategy: "word-boundary",
+      performanceTarget: 5e3,
+      maxOperations: 500
+    },
+    fallbackToAPI: true
+  }
 };
 var BUILD_TIMESTAMP = Date.now();
 var BUILD_VERSION = "v2.0.1-fix-ai-providers";
@@ -4617,12 +4932,10 @@ What would you like to know about this text?`;
       fullContext = await this.getDocumentContext();
     }
     try {
-      if (selectedMode && selectedMode !== "chat") {
-        await this.processWithEditorialEngine(parsedMessage, fullContext);
-      } else if (parsedMessage.intent === "edit" || parsedMessage.intent === "improve") {
-        await this.processWithEditorialEngine(parsedMessage, fullContext);
-      } else {
+      if (selectedMode === "chat") {
         await this.processWithAIProvider(parsedMessage, fullContext);
+      } else {
+        await this.processWithEditorialEngine(parsedMessage, fullContext);
       }
       this.currentSession.updatedAt = Date.now();
       if (this.settings.autoSaveChats) {
@@ -4676,7 +4989,7 @@ What would you like to know about this text?`;
     };
   }
   async processWithEditorialEngine(parsedMessage, context) {
-    var _a, _b;
+    var _a, _b, _c;
     if (!((_a = window.Writerr) == null ? void 0 : _a.editorial)) {
       throw new Error("Editorial Engine is not available. Please ensure the Editorial Engine plugin is loaded.");
     }
@@ -4690,15 +5003,23 @@ What would you like to know about this text?`;
     try {
       const payload = {
         id: generateId(),
-        text: parsedMessage.selection || context || parsedMessage.originalContent,
-        originalText: parsedMessage.selection || context,
+        timestamp: Date.now(),
+        sessionId: this.currentSession.id,
+        instructions: parsedMessage.originalContent,
+        // The user's message/request
+        sourceText: parsedMessage.selection || context || "",
+        // The text to be edited
         mode: parsedMessage.mode,
-        constraints: await this.getConstraintsForMode(parsedMessage.mode),
+        context: {
+          documentPath: ((_b = this.app.workspace.getActiveFile()) == null ? void 0 : _b.path) || "",
+          surroundingText: context
+        },
+        preferences: {
+          constraints: await this.getConstraintsForMode(parsedMessage.mode)
+        },
         metadata: {
           source: "writerr-chat",
-          intent: parsedMessage.intent,
-          timestamp: Date.now(),
-          sessionId: this.currentSession.id
+          intent: parsedMessage.intent
         }
       };
       const result = await window.Writerr.editorial.process(payload);
@@ -4716,12 +5037,174 @@ What would you like to know about this text?`;
           }
         };
         this.currentSession.messages.push(assistantMessage);
+        await this.integrateWithTrackEdits(result, parsedMessage);
       } else {
-        throw new Error(`Editorial Engine processing failed: ${(_b = result.errors) == null ? void 0 : _b.map((e) => e.message).join(", ")}`);
+        throw new Error(`Editorial Engine processing failed: ${(_c = result.errors) == null ? void 0 : _c.map((e) => e.message).join(", ")}`);
       }
     } catch (error) {
       console.error("Editorial Engine processing error:", error);
       throw error;
+    }
+  }
+  async integrateWithTrackEdits(editorialEngineResult, parsedMessage) {
+    var _a, _b, _c, _d, _e;
+    try {
+      if (!((_a = window.WriterrlAPI) == null ? void 0 : _a.trackEdits)) {
+        console.warn("Track Edits plugin not available - Editorial Engine results will not be applied to document");
+        return;
+      }
+      if (!editorialEngineResult.changes || editorialEngineResult.changes.length === 0) {
+        console.log("No changes from Editorial Engine to apply to document");
+        return;
+      }
+      console.log("Integrating Editorial Engine results with Track Edits using sequential processing:", {
+        changesCount: editorialEngineResult.changes.length,
+        mode: parsedMessage.mode
+      });
+      const activeFile = this.app.workspace.getActiveFile();
+      if (!activeFile) {
+        console.warn("No active file - cannot apply Editorial Engine changes to document");
+        return;
+      }
+      const activeLeaf = this.app.workspace.getActiveViewOfType(require("obsidian").MarkdownView);
+      if (!activeLeaf || !activeLeaf.editor) {
+        console.warn("No active editor - cannot apply Editorial Engine changes to document");
+        return;
+      }
+      const editor = activeLeaf.editor;
+      const useSequentialProcessing = ((_b = this.settings.editorialEngineSettings) == null ? void 0 : _b.useSequentialProcessing) !== false;
+      const sequentialConfig = ((_c = this.settings.editorialEngineSettings) == null ? void 0 : _c.sequentialConfig) || {
+        delayMs: 50,
+        chunkStrategy: "word-boundary",
+        performanceTarget: 5e3,
+        maxOperations: 500
+      };
+      if (useSequentialProcessing) {
+        try {
+          await this.applyChangesSequentially(editorialEngineResult, editor, sequentialConfig);
+          console.log(`Successfully applied ${editorialEngineResult.changes.length} changes from Editorial Engine using sequential processing`);
+        } catch (sequentialError) {
+          console.warn("Sequential processing failed, falling back to API approach:", sequentialError.message);
+          await this.applyChangesViaAPI(editorialEngineResult, parsedMessage);
+        }
+      } else {
+        await this.applyChangesViaAPI(editorialEngineResult, parsedMessage);
+      }
+      if (window.Writerr.events) {
+        window.Writerr.events.emit("chat.editorial-engine-integration-success", {
+          jobId: editorialEngineResult.jobId,
+          changesApplied: editorialEngineResult.changes.length,
+          mode: parsedMessage.mode,
+          sessionId: (_d = this.currentSession) == null ? void 0 : _d.id,
+          method: useSequentialProcessing ? "sequential" : "api"
+        });
+      }
+    } catch (error) {
+      console.error("Track Edits integration error:", error);
+      if (window.Writerr.events) {
+        window.Writerr.events.emit("chat.editorial-engine-integration-failure", {
+          error: error.message,
+          mode: parsedMessage.mode,
+          sessionId: (_e = this.currentSession) == null ? void 0 : _e.id
+        });
+      }
+      console.warn("Editorial Engine results displayed in chat but could not be applied to document");
+    }
+  }
+  /**
+   * Apply changes using SequentialTextProcessor for granular Track Edits detection
+   */
+  async applyChangesSequentially(editorialEngineResult, editor, sequentialConfig) {
+    var _a, _b, _c;
+    const { SequentialTextProcessor: SequentialTextProcessor2 } = await Promise.resolve().then(() => (init_sequential_text_processor(), sequential_text_processor_exports));
+    const processor = new SequentialTextProcessor2({
+      delayMs: sequentialConfig.delayMs,
+      chunkStrategy: sequentialConfig.chunkStrategy,
+      performanceTarget: sequentialConfig.performanceTarget,
+      maxOperations: sequentialConfig.maxOperations
+    });
+    const obsidianEditorAdapter = {
+      getValue: () => editor.getValue(),
+      replaceRange: (text, from, to) => {
+        if (to) {
+          editor.replaceRange(text, from, to);
+        } else {
+          editor.replaceRange(text, from);
+        }
+      }
+    };
+    for (const change of editorialEngineResult.changes) {
+      try {
+        const currentText = editor.getValue();
+        const targetText = this.applyChangeToText(currentText, change);
+        await processor.simulateHumanEditing(
+          currentText,
+          targetText,
+          obsidianEditorAdapter
+        );
+        if ((_a = window.WriterrlAPI) == null ? void 0 : _a.trackEdits) {
+          const trackEditsChange = {
+            id: change.id || `seq-${Date.now()}`,
+            type: change.type || "edit",
+            range: change.range,
+            originalText: change.originalText || "",
+            newText: change.newText || "",
+            confidence: change.confidence || 0.9,
+            reasoning: change.reasoning || `Sequential processing via Editorial Engine`,
+            source: "editorial-engine-sequential",
+            timestamp: Date.now(),
+            metadata: {
+              editorialEngineJobId: editorialEngineResult.jobId,
+              sequentialProcessing: true
+            }
+          };
+          await ((_c = (_b = window.WriterrlAPI.trackEdits).recordChange) == null ? void 0 : _c.call(_b, trackEditsChange));
+        }
+      } catch (error) {
+        console.warn(`Failed to apply change ${change.id} sequentially:`, error);
+        throw error;
+      }
+    }
+  }
+  /**
+   * Apply a single change to text (helper method)
+   */
+  applyChangeToText(text, change) {
+    const { range, originalText, newText, type } = change;
+    if (range && range.from !== void 0 && range.to !== void 0) {
+      return text.substring(0, range.from) + (newText || "") + text.substring(range.to);
+    } else if (originalText && newText !== void 0) {
+      return text.replace(originalText, newText);
+    } else if (type === "insert" && newText) {
+      return newText + text;
+    }
+    return text;
+  }
+  /**
+   * Fallback method: Apply changes via original API approach
+   */
+  async applyChangesViaAPI(editorialEngineResult, parsedMessage) {
+    var _a;
+    console.log("Applying changes via Track Edits API (fallback method)");
+    for (const change of editorialEngineResult.changes) {
+      const trackEditsChange = {
+        id: change.id || generateId(),
+        type: change.type || "edit",
+        range: change.range,
+        originalText: change.originalText,
+        newText: change.newText,
+        confidence: change.confidence || 0.9,
+        reasoning: change.reasoning || `Applied via Editorial Engine (${parsedMessage.mode} mode)`,
+        source: "editorial-engine-via-chat",
+        timestamp: Date.now(),
+        metadata: {
+          editorialEngineJobId: editorialEngineResult.jobId,
+          mode: parsedMessage.mode,
+          chatSessionId: (_a = this.currentSession) == null ? void 0 : _a.id,
+          fallbackMethod: true
+        }
+      };
+      await window.WriterrlAPI.trackEdits.applyChange(trackEditsChange);
     }
   }
   async processWithAIProvider(parsedMessage, context) {

@@ -1,0 +1,12 @@
+{
+  "sessionId": "test_1756505167070",
+  "testMode": true,
+  "enableConsoleInterception": true,
+  "enableVisualMonitoring": true,
+  "outputDir": ".agent-os/test-sessions/2025-08-29_14-59-21",
+  "timestamp": 1756505167073,
+  "editorialEngineMonitoring": true,
+  "chatIntegrationDetection": true,
+  "aiAttributionTracking": true,
+  "enhancedReporting": true
+}
